@@ -115,7 +115,24 @@ React + Vite（127.0.0.1:5173）
 
 以下操作都在项目根目录执行。后端和前端需要分别占用一个终端窗口。
 
-### 1. 检查源码是否完整
+### 1. 从 GitHub 克隆项目
+
+请先确认电脑已安装 Git：
+
+```powershell
+git --version
+```
+
+在准备存放项目的目录中执行：
+
+```powershell
+git clone https://github.com/Initial512/-.git zhiwei-recipe-rag
+cd zhiwei-recipe-rag
+```
+
+`zhiwei-recipe-rag` 是克隆到本地后的文件夹名称，可以根据需要修改。执行后续命令前，请确认终端当前位于该项目根目录。
+
+### 2. 检查源码是否完整
 
 源码中必须包含：
 
@@ -134,7 +151,7 @@ Windows PowerShell：
 
 两个结果正常情况下都应为 `322`。如果目录不存在或数量为 `0`，说明拿到的源码缺少菜谱数据，后端无法启动。
 
-### 2. 安装运行环境
+### 3. 安装运行环境
 
 请先安装：
 
@@ -150,7 +167,7 @@ node --version
 npm --version
 ```
 
-### 3. 创建 Python 虚拟环境
+### 4. 创建 Python 虚拟环境
 
 Windows PowerShell：
 
@@ -176,7 +193,7 @@ python -m pip install --upgrade pip
 python -m pip install -r Rag/requirements.txt
 ```
 
-### 4. 配置模型服务
+### 5. 配置模型服务
 
 Windows PowerShell：
 
@@ -216,7 +233,7 @@ LLM_API_KEY=your_api_key
 
 三项都必须填写。不要把真实密钥提交到 Git，项目已经通过 `.gitignore` 忽略 `Rag/.env`。
 
-### 5. 启动后端
+### 6. 启动后端
 
 打开第一个终端。
 
@@ -241,7 +258,7 @@ cd Rag
 
 首次启动需要加载 `BAAI/bge-small-zh-v1.5`。如果本机没有模型缓存，程序会从 Hugging Face 下载，所需时间取决于网络速度。
 
-### 6. 启动前端
+### 7. 启动前端
 
 保持后端运行，再打开第二个终端：
 
