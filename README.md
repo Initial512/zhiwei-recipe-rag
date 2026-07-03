@@ -126,11 +126,11 @@ git --version
 在准备存放项目的目录中执行：
 
 ```powershell
-git clone https://github.com/Initial512/-.git zhiwei-recipe-rag
+git clone https://github.com/Initial512/zhiwei-recipe-rag.git
 cd zhiwei-recipe-rag
 ```
 
-`zhiwei-recipe-rag` 是克隆到本地后的文件夹名称，可以根据需要修改。执行后续命令前，请确认终端当前位于该项目根目录。
+执行后续命令前，请确认终端当前位于 `zhiwei-recipe-rag` 项目根目录。
 
 ### 2. 检查源码是否完整
 
