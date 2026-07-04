@@ -1,7 +1,7 @@
 ---
 title: 知味 AI Recipe API
 emoji: 🍜
-colorFrom: orange
+colorFrom: yellow
 colorTo: red
 sdk: docker
 app_port: 7860
