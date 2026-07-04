@@ -1,13 +1,3 @@
----
-title: 知味 AI Recipe API
-emoji: 🍜
-colorFrom: yellow
-colorTo: red
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # 知味食谱——智能菜谱推荐助手
 
 知味 AI 是一个基于本地菜谱知识库的智能美食推荐应用。它支持菜谱浏览、关键词搜索、自然语言推荐和流式 AI 问答，可以根据菜名、口味、菜品类型或食材帮助用户找到合适的菜谱。
