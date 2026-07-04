@@ -1,0 +1,14 @@
+.git
+.github
+.agents
+.codex
+.venv
+outputs
+docs
+zhiwei-web
+**/.env
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+Rag/test_*.py
+*.log

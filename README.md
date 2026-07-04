@@ -1,3 +1,13 @@
+---
+title: 知味 AI Recipe API
+emoji: 🍜
+colorFrom: orange
+colorTo: red
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # 知味食谱——智能菜谱推荐助手
 
 知味 AI 是一个基于本地菜谱知识库的智能美食推荐应用。它支持菜谱浏览、关键词搜索、自然语言推荐和流式 AI 问答，可以根据菜名、口味、菜品类型或食材帮助用户找到合适的菜谱。
@@ -35,7 +45,7 @@
 - 10 个实际菜谱分类
 - 预构建 FAISS 向量索引
 - 中文嵌入模型：`BAAI/bge-small-zh-v1.5`
-- 对话模型：通过环境变量接入 OpenAI 兼容服务，示例配置使用 `deepseek-chat`
+- 对话模型：通过环境变量接入 OpenAI 兼容服务，示例配置使用 `deepseek-v4-flash`
 
 ## 🛠️ 技术栈
 
@@ -213,7 +223,7 @@ cp .env.example Rag/.env
 
 ```dotenv
 LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL=deepseek-chat
+LLM_MODEL=deepseek-v4-flash
 LLM_API_KEY=your_real_api_key
 ```
 
@@ -329,6 +339,93 @@ npm run build
 - 中文图片 URL
 - 静态图片响应
 - 菜谱与网页图片完整映射
+
+## ☁️ 免费部署
+
+推荐架构：
+
+```text
+Vercel（React 静态前端）
+        │
+        ▼
+Hugging Face Docker Space（FastAPI + BGE + FAISS + 菜谱数据）
+        │
+        ▼
+DeepSeek API
+```
+
+当前应用不保存用户数据，因此不需要部署数据库或 Supabase。FAISS 索引已经位于
+`Rag/vector_index`，Docker 镜像构建时会同时包含索引、Markdown 菜谱和菜品图片。
+
+### 1. 部署后端到 Hugging Face Spaces
+
+1. 在 Hugging Face 创建一个新的 **Docker Space**，免费硬件选择 `CPU Basic`。
+2. 将本仓库推送到 Space 仓库。根目录的 `Dockerfile` 会自动构建 FastAPI 服务。
+3. 在 Space 的 **Settings → Variables and secrets** 中添加以下 Secrets：
+
+```dotenv
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-v4-flash
+LLM_API_KEY=your_real_api_key
+```
+
+4. 添加以下 Variable；首次部署前可以先填写临时值，Vercel 部署完成后再替换为真实域名：
+
+```dotenv
+CORS_ORIGINS=https://your-project.vercel.app
+```
+
+Space 构建完成后，后端地址格式如下：
+
+```text
+https://<account>-<space-name>.hf.space
+```
+
+健康检查：
+
+```text
+https://<account>-<space-name>.hf.space/api/health
+```
+
+不要把真实 `LLM_API_KEY` 写入 `.env.example`、Dockerfile 或提交到 Git。
+
+### 2. 部署前端到 Vercel
+
+1. 在 Vercel 导入同一个 GitHub 仓库。
+2. 将 **Root Directory** 设置为 `zhiwei-web`。
+3. 使用以下构建配置：
+
+```text
+Framework Preset: Vite
+Build Command: npm run build
+Output Directory: dist
+```
+
+4. 添加 Production 环境变量：
+
+```dotenv
+VITE_API_BASE_URL=https://<account>-<space-name>.hf.space
+```
+
+5. 触发一次重新部署。`zhiwei-web/vercel.json` 已配置 SPA 回退，因此直接访问或刷新
+`/recipe/...`、`/category/...`、`/search` 和 `/answer` 不会返回 404。
+
+### 3. 完成跨域配置
+
+取得 Vercel 正式域名后，回到 Hugging Face Space，将 `CORS_ORIGINS` 更新为该域名。
+如需同时允许多个域名，使用英文逗号分隔：
+
+```dotenv
+CORS_ORIGINS=https://your-project.vercel.app,https://www.your-domain.com
+```
+
+更新变量会重启 Space。重启完成后依次验证：
+
+- `/api/health` 返回 `status: ok` 和 `ready: true`
+- 首页分类和推荐正常加载
+- 搜索、菜谱详情和图片正常
+- AI 流式回答可以完整结束
+- 直接刷新前端子路径不会出现 404
 
 ## 📝 修改菜谱
 
