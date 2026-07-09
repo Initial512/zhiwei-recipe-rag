@@ -1,0 +1,39 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: zhiwei-recipe-backend:local
+    env_file:
+      - Rag/.env
+    environment:
+      CORS_ORIGINS: http://localhost,http://127.0.0.1
+    ports:
+      - "7860:7860"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:7860/api/health', timeout=5)); raise SystemExit(0 if data.get('status') == 'ok' and data.get('ready') else 1)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./zhiwei-web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ""
+    image: zhiwei-recipe-frontend:local
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    restart: unless-stopped

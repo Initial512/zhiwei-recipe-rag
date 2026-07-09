@@ -330,28 +330,23 @@ npm run build
 - 静态图片响应
 - 菜谱与网页图片完整映射
 
-## ☁️ 免费部署
+## 🐳 Docker 打包与一键部署
 
-推荐架构：
+本项目可以用 Docker Compose 同时启动前端和后端：
 
-```text
-Vercel（React 静态前端）
-        │
-        ▼
-Hugging Face Docker Space（FastAPI + BGE + FAISS + 菜谱数据）
-        │
-        ▼
-DeepSeek API
+- `backend`：FastAPI + BGE 嵌入模型 + FAISS 索引 + 菜谱数据
+- `frontend`：Vite 构建后的静态网页，由 nginx 提供服务
+- nginx 会把 `/api/*` 和 `/recipe-images/*` 转发到后端，其余路径回退到前端页面
+
+### 1. 准备环境变量
+
+后端容器默认读取 `Rag/.env`。如果还没有该文件，可以复制 `.env.example` 后填写真实配置：
+
+```powershell
+Copy-Item .env.example Rag\.env
 ```
 
-当前应用不保存用户数据，因此不需要部署数据库或 Supabase。FAISS 索引已经位于
-`Rag/vector_index`，Docker 镜像构建时会同时包含索引、Markdown 菜谱和菜品图片。
-
-### 1. 部署后端到 Hugging Face Spaces
-
-1. 在 Hugging Face 创建一个新的 **Docker Space**，免费硬件选择 `CPU Basic`。
-2. 将本仓库推送到 Space 仓库。根目录的 `Dockerfile` 会自动构建 FastAPI 服务。
-3. 在 Space 的 **Settings → Variables and secrets** 中添加以下 Secrets：
+至少需要填写：
 
 ```dotenv
 LLM_BASE_URL=https://api.deepseek.com
@@ -359,63 +354,65 @@ LLM_MODEL=deepseek-v4-flash
 LLM_API_KEY=your_real_api_key
 ```
 
-4. 添加以下 Variable；首次部署前可以先填写临时值，Vercel 部署完成后再替换为真实域名：
+不要把真实 `LLM_API_KEY` 写入 `.env.example`、Dockerfile、`docker-compose.yml` 或提交到 Git。
 
-```dotenv
-CORS_ORIGINS=https://your-project.vercel.app
+### 2. 一键构建并启动
+
+确认已安装 Docker Desktop，然后在项目根目录执行：
+
+```powershell
+docker compose up -d --build
 ```
 
-Space 构建完成后，后端地址格式如下：
+启动完成后访问：
 
 ```text
-https://<account>-<space-name>.hf.space
+http://localhost
 ```
 
 健康检查：
 
 ```text
-https://<account>-<space-name>.hf.space/api/health
+http://localhost/api/health
 ```
 
-不要把真实 `LLM_API_KEY` 写入 `.env.example`、Dockerfile 或提交到 Git。
-
-### 2. 部署前端到 Vercel
-
-1. 在 Vercel 导入同一个 GitHub 仓库。
-2. 将 **Root Directory** 设置为 `zhiwei-web`。
-3. 使用以下构建配置：
+如果本机 80 端口已被占用，可以把 `docker-compose.yml` 里的前端端口从 `80:80` 改成 `8080:80`，然后访问：
 
 ```text
-Framework Preset: Vite
-Build Command: npm run build
-Output Directory: dist
+http://localhost:8080
 ```
 
-4. 添加 Production 环境变量：
+### 3. 常用运维命令
 
-```dotenv
-VITE_API_BASE_URL=https://<account>-<space-name>.hf.space
+查看后端日志：
+
+```powershell
+docker compose logs -f backend
 ```
 
-5. 触发一次重新部署。`zhiwei-web/vercel.json` 已配置 SPA 回退，因此直接访问或刷新
-`/recipe/...`、`/category/...`、`/search` 和 `/answer` 不会返回 404。
+查看前端日志：
 
-### 3. 完成跨域配置
-
-取得 Vercel 正式域名后，回到 Hugging Face Space，将 `CORS_ORIGINS` 更新为该域名。
-如需同时允许多个域名，使用英文逗号分隔：
-
-```dotenv
-CORS_ORIGINS=https://your-project.vercel.app,https://www.your-domain.com
+```powershell
+docker compose logs -f frontend
 ```
 
-更新变量会重启 Space。重启完成后依次验证：
+重启：
 
-- `/api/health` 返回 `status: ok` 和 `ready: true`
-- 首页分类和推荐正常加载
-- 搜索、菜谱详情和图片正常
-- AI 流式回答可以完整结束
-- 直接刷新前端子路径不会出现 404
+```powershell
+docker compose restart
+```
+
+停止并移除容器：
+
+```powershell
+docker compose down
+```
+
+重新打包：
+
+```powershell
+docker compose build --no-cache
+```
 
 ## 📝 修改菜谱
 
