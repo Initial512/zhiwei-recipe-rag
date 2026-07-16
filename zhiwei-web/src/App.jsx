@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowsClockwise,
-  CaretDown,
   CheckCircle,
   Clock,
   Lightbulb,
@@ -15,12 +14,13 @@ import {
 } from "@phosphor-icons/react";
 import roomImage from "./assets/warm-interior.png";
 import aromaImage from "./assets/aroma-chopsticks-transparent.png";
+import { chooseSearchMode, hasRecipeQuestionIntent } from "./searchRouting.js";
 
 const quickQuestions = ["推荐几道简单的汤", "今晚想吃点辣的", "适合夏天的饮品"];
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 const apiUrl = (path) => `${API_BASE_URL}${path}`;
 
-function parseLocation() {
+function parseLocation(historyState = window.history.state) {
   const path = window.location.pathname;
   if (path.startsWith("/category/")) {
     return { type: "category", categoryName: decodeURIComponent(path.slice("/category/".length)) };
@@ -36,7 +36,8 @@ function parseLocation() {
     return {
       type: "answer",
       query: params.get("q") || "",
-      mode: params.get("mode") === "recipe" ? "recipe" : "assistant",
+      mode: ["recipe", "cards"].includes(params.get("mode")) ? params.get("mode") : "assistant",
+      recipeResults: Array.isArray(historyState?.recipeResults) ? historyState.recipeResults : undefined,
     };
   }
   return { type: "home" };
@@ -134,17 +135,22 @@ export function App() {
   const [answerTitle, setAnswerTitle] = useState("");
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState([]);
+  const [answerRecipeResults, setAnswerRecipeResults] = useState([]);
+  const [answerRecipeLoading, setAnswerRecipeLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
   const [catalogError, setCatalogError] = useState("");
   const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
+  const [searchMenuOpen, setSearchMenuOpen] = useState(false);
+  const [nameSearchInput, setNameSearchInput] = useState("");
   const [lastRequest, setLastRequest] = useState(null);
   const abortRef = useRef(null);
-  const queryAbortRef = useRef(null);
+  const searchMenuRef = useRef(null);
+  const categoryMenuRef = useRef(null);
 
   useEffect(() => {
     const onPopState = (event) => {
-      const nextPage = parseLocation();
+      const nextPage = parseLocation(event.state);
       setPage(nextPage);
       setActiveCategory(nextPage.categoryName || "");
       setRecipeQuery("");
@@ -153,6 +159,18 @@ export function App() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  useEffect(() => {
+    if (!searchMenuOpen && !categoryMenuOpen) return undefined;
+
+    const closeMenusOutside = (event) => {
+      if (!searchMenuRef.current?.contains(event.target)) setSearchMenuOpen(false);
+      if (!categoryMenuRef.current?.contains(event.target)) setCategoryMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeMenusOutside);
+    return () => document.removeEventListener("pointerdown", closeMenusOutside);
+  }, [searchMenuOpen, categoryMenuOpen]);
 
   useEffect(() => {
     fetch(apiUrl("/api/categories"))
@@ -229,8 +247,9 @@ export function App() {
     if (page.type !== "search" || !page.query) return;
     const controller = new AbortController();
     setSearchError("");
+    setSearchResults([]);
     setSearching(true);
-    fetch(apiUrl(`/api/search?${new URLSearchParams({ query: page.query, limit: "12" })}`), {
+    fetch(apiUrl(`/api/search/recipes?${new URLSearchParams({ query: page.query, limit: "12" })}`), {
       signal: controller.signal,
     })
       .then((response) => {
@@ -249,6 +268,27 @@ export function App() {
     abortRef.current?.abort();
     abortRef.current = null;
     setStreaming(false);
+  }, []);
+
+  const loadCardResults = useCallback(async (query, signal) => {
+    setAnswerRecipeResults([]);
+    setAnswerRecipeLoading(true);
+    setError("");
+    try {
+      const response = await fetch(
+        apiUrl(`/api/search/recipes?${new URLSearchParams({ query, limit: "12" })}`),
+        { signal },
+      );
+      if (!response.ok) throw new Error("菜谱加载失败");
+      const data = await response.json();
+      setAnswerRecipeResults(data.results || []);
+    } catch (requestError) {
+      if (requestError.name !== "AbortError") {
+        setError(requestError.message || "菜谱加载失败");
+      }
+    } finally {
+      setAnswerRecipeLoading(false);
+    }
   }, []);
 
   const startStream = useCallback(async (requestConfig) => {
@@ -285,6 +325,17 @@ export function App() {
 
   useEffect(() => {
     if (page.type !== "answer" || !page.query) return;
+    if (page.mode === "cards") {
+      if (Array.isArray(page.recipeResults)) {
+        setAnswerRecipeResults(page.recipeResults);
+        setAnswerRecipeLoading(false);
+        setError("");
+        return undefined;
+      }
+      const controller = new AbortController();
+      loadCardResults(page.query, controller.signal);
+      return () => controller.abort();
+    }
     startStream({
       title: page.query,
       url: page.mode === "recipe" ? "/api/chat/stream" : "/api/assistant/stream",
@@ -292,7 +343,7 @@ export function App() {
       openPanel: false,
     });
     return () => abortRef.current?.abort();
-  }, [page, startStream]);
+  }, [page, loadCardResults, startStream]);
 
   const saveScrollPosition = () => {
     window.history.replaceState({ ...window.history.state, scrollY: window.scrollY }, "");
@@ -304,6 +355,7 @@ export function App() {
     window.history.pushState({}, "", `/recipe/${encodeURIComponent(dishName)}`);
     setPage({ type: "recipe", dishName });
     setCategoryMenuOpen(false);
+    setSearchMenuOpen(false);
     window.scrollTo({ top: 0 });
   }, []);
 
@@ -316,24 +368,43 @@ export function App() {
     setRecipes([]);
     setRecipeQuery("");
     setCategoryMenuOpen(false);
+    setSearchMenuOpen(false);
     window.scrollTo({ top: 0, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
-  const openAnswerPage = useCallback((question, mode) => {
+  const openAnswerPage = useCallback((question, mode, recipeResults) => {
     saveScrollPosition();
     const params = new URLSearchParams({ q: question, mode });
-    window.history.pushState({}, "", `/answer?${params}`);
+    const state = Array.isArray(recipeResults) ? { recipeResults } : {};
+    window.history.pushState(state, "", `/answer?${params}`);
     setAnswerOpen(false);
-    setPage({ type: "answer", query: question, mode });
+    setPage({ type: "answer", query: question, mode, recipeResults });
     window.scrollTo({ top: 0 });
   }, []);
 
-  const submitSearch = (question) => {
+  const submitSearch = async (question) => {
     const value = question.trim();
-    if (!value) return;
+    if (!value || searching) return;
     setChatInput("");
     setSearchError("");
-    openAnswerPage(value, "assistant");
+    if (hasRecipeQuestionIntent(value)) {
+      openAnswerPage(value, "recipe");
+      return;
+    }
+    setSearching(true);
+    try {
+      const response = await fetch(
+        apiUrl(`/api/search/recipes?${new URLSearchParams({ query: value, limit: "12" })}`),
+      );
+      if (!response.ok) throw new Error("Recipe lookup failed");
+      const data = await response.json();
+      const results = data.results || [];
+      openAnswerPage(value, chooseSearchMode(value, results), results);
+    } catch {
+      openAnswerPage(value, "recipe");
+    } finally {
+      setSearching(false);
+    }
   };
 
   const activeCount = useMemo(
@@ -356,6 +427,19 @@ export function App() {
     setRecipeQuery("");
     setCatalogError("");
     setCategoryMenuOpen(false);
+    setSearchMenuOpen(false);
+    window.scrollTo({ top: 0 });
+  };
+
+  const submitNameSearch = async (event) => {
+    event.preventDefault();
+    const value = nameSearchInput.trim();
+    if (!value) return;
+    saveScrollPosition();
+    window.history.pushState({}, "", `/search?${new URLSearchParams({ q: value })}`);
+    setNameSearchInput("");
+    setSearchMenuOpen(false);
+    setPage({ type: "search", query: value });
     window.scrollTo({ top: 0 });
   };
 
@@ -381,26 +465,49 @@ export function App() {
         </div>
         <nav aria-label="主要导航">
           <button className="nav-link" onClick={() => goHome(true)}>首页</button>
-          <button className="nav-link" type="button">搜索</button>
+          <div ref={searchMenuRef} className={searchMenuOpen ? "search-menu open" : "search-menu"}>
+            <button
+              className="nav-link"
+              type="button"
+              onClick={() => {
+                setSearchMenuOpen((value) => !value);
+                setCategoryMenuOpen(false);
+              }}
+              aria-haspopup="dialog"
+              aria-expanded={searchMenuOpen}
+            >
+              搜索
+            </button>
+            <div className="name-search-panel" role="dialog" aria-label="按菜名搜索">
+              <form onSubmit={submitNameSearch}>
+                <input
+                  value={nameSearchInput}
+                  onChange={(event) => setNameSearchInput(event.target.value)}
+                  placeholder="输入菜名关键词"
+                  aria-label="菜名关键词"
+                />
+                <button type="submit" disabled={!nameSearchInput.trim()} aria-label="搜索菜名">
+                  <MagnifyingGlass size={18} weight="bold" />
+                </button>
+              </form>
+              <p className="name-search-message">按回车或点击图标搜索菜名</p>
+            </div>
+          </div>
           <div
+            ref={categoryMenuRef}
             className={categoryMenuOpen ? "nav-menu open" : "nav-menu"}
           >
             <div className="nav-menu-trigger">
               <button
                 className="nav-link"
-                onClick={() => setCategoryMenuOpen((value) => !value)}
+                onClick={() => {
+                  setCategoryMenuOpen((value) => !value);
+                  setSearchMenuOpen(false);
+                }}
                 aria-haspopup="menu"
                 aria-expanded={categoryMenuOpen}
               >
                 菜类
-              </button>
-              <button
-                className="nav-menu-toggle"
-                onClick={() => setCategoryMenuOpen((value) => !value)}
-                aria-label="切换菜类菜单"
-                aria-expanded={categoryMenuOpen}
-              >
-                <CaretDown size={14} weight="bold" />
               </button>
             </div>
             <div className="category-menu" role="menu" aria-label="菜类分类">
@@ -540,7 +647,15 @@ export function App() {
           <div className="answer-page-statusbar">
             <span>
               <Sparkle size={21} weight="fill" />
-              {streaming ? "知味 AI 正在生成回答" : "知味 AI 已完成回答"}
+              {page.mode === "cards"
+                ? (answerRecipeLoading
+                  ? "正在查找本地菜谱"
+                  : error
+                    ? "本地菜谱搜索失败"
+                    : answerRecipeResults.length
+                      ? "已找到本地菜谱"
+                      : "未找到本地菜谱")
+                : (streaming ? "知味 AI 正在生成回答" : "知味 AI 已完成回答")}
             </span>
             <button className="page-back" onClick={() => window.history.back()}>
               <ArrowLeft size={18} />返回上一页
@@ -551,27 +666,47 @@ export function App() {
             <header className="ai-answer-header">
               <div className="ai-answer-mark"><Sparkle size={31} weight="fill" /></div>
               <div>
-                <p>{page.mode === "recipe" ? "RECIPE KNOWLEDGE" : "ZHIWEI ASSISTANT"}</p>
+                <p>{page.mode === "cards" ? "RECIPE RESULTS" : page.mode === "recipe" ? "RECIPE KNOWLEDGE" : "ZHIWEI ASSISTANT"}</p>
                 <h1>{page.query}</h1>
                 <div className="ai-answer-tags">
                   <span>知味 AI</span>
-                  <span>{page.mode === "recipe" ? "菜谱知识库回答" : "饮食助手回答"}</span>
+                  <span>{page.mode === "cards" ? "本地菜谱匹配" : page.mode === "recipe" ? "菜谱知识库回答" : "饮食助手回答"}</span>
                 </div>
               </div>
             </header>
 
             <section className="ai-answer-body" aria-live="polite">
               <div className="ai-answer-body-heading">
-                <h2><Sparkle size={22} />知味回答</h2>
+                <h2><Sparkle size={22} />{page.mode === "cards" ? "为你找到这些菜谱" : "知味回答"}</h2>
                 {streaming && <span><i />生成中</span>}
               </div>
-              <div className={`ai-answer-text ${streaming ? "is-streaming" : ""}`}>
-                {answer || (!error && <span className="answer-waiting">正在理解你的问题…</span>)}
-              </div>
+              {page.mode === "cards" ? (
+                <>
+                  {answerRecipeLoading && <p className="answer-waiting">正在从菜谱库匹配菜名…</p>}
+                  {!answerRecipeLoading && answerRecipeResults.length > 0 && (
+                    <div className="answer-page-recipe-grid">
+                      {answerRecipeResults.map((recipe) => (
+                        <RecipeCard key={`${recipe.category}-${recipe.dish_name}`} recipe={recipe} onOpen={openRecipe} />
+                      ))}
+                    </div>
+                  )}
+                  {!answerRecipeLoading && !answerRecipeResults.length && !error && (
+                    <p className="empty-state">没有找到匹配的本地菜谱。</p>
+                  )}
+                </>
+              ) : (
+                <div className={`ai-answer-text ${streaming ? "is-streaming" : ""}`}>
+                  {answer || (!error && <span className="answer-waiting">正在理解你的问题…</span>)}
+                </div>
+              )}
               {error && (
                 <div className="answer-error" role="alert">
                   <span>{error}</span>
-                  <button onClick={() => lastRequest && startStream(lastRequest)}>重新生成</button>
+                  <button onClick={() => (
+                    page.mode === "cards"
+                      ? loadCardResults(page.query)
+                      : lastRequest && startStream(lastRequest)
+                  )}>{page.mode === "cards" ? "重新搜索" : "重新生成"}</button>
                 </div>
               )}
               {streaming && (
@@ -583,17 +718,10 @@ export function App() {
 
             {page.mode === "recipe" && sources.length > 0 && (
               <section className="answer-page-sources">
-                <p>回答参考</p>
-                <div>
+                <p>相关菜谱</p>
+                <div className="answer-page-recipe-grid">
                   {sources.map((source) => (
-                    <button key={`${source.category}-${source.dish_name}`} onClick={() => openRecipe(source)}>
-                      <RecipeArtwork recipe={source} />
-                      <span>
-                        <strong>{source.dish_name}</strong>
-                        <small>{source.category} · {source.difficulty}</small>
-                      </span>
-                      <ArrowRight size={16} />
-                    </button>
+                    <RecipeCard key={`${source.category}-${source.dish_name}`} recipe={source} onOpen={openRecipe} />
                   ))}
                 </div>
               </section>

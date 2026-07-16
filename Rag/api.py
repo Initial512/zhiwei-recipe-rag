@@ -382,18 +382,12 @@ def _prepare_answer(system: RecipeRAGSystem, question: str):
             question, docs
         )
 
+    # 开放式需求先从 RAG 召回，再让大模型基于召回内容回答。
+    # 不将召回文档作为 SSE sources 返回，前端因此不会展示菜品卡片。
     docs = _recommendation_documents(system, parsed, limit=max(system.config.top_k, 8))
     if not docs:
-        prefix = iter(["数据库中暂时没有找到完全匹配的菜品。\n\n大模型补充建议："])
-        return [], chain(
-            prefix,
-            system.generation_module.generate_assistant_answer_stream(question),
-        )
-    names = [doc.metadata.get("dish_name", "未知菜品") for doc in docs]
-    answer = "本地菜谱数据库为你找到：\n" + "\n".join(
-        f"{index}. {name}" for index, name in enumerate(names, start=1)
-    )
-    return docs, iter([answer])
+        return [], system.generation_module.generate_assistant_answer_stream(question)
+    return [], system.generation_module.generate_basic_answer_stream(question, docs)
 
 
 def _prepare_ingredients(system: RecipeRAGSystem, dish_name: str):
@@ -553,6 +547,28 @@ def search_recipes(
             None if matched_docs
             else "数据库中暂时没有找到完全匹配的菜品。"
         ),
+    }
+
+
+@app.get("/api/search/recipes")
+def search_recipe_names(
+    request: Request,
+    query: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(12, ge=1, le=24),
+):
+    """Return only local recipe-name keyword matches; never invoke the LLM."""
+    value = query.strip()
+    if not value:
+        raise HTTPException(status_code=422, detail="查询内容不能为空")
+    keyword = value.casefold()
+    matches = []
+    for doc in _recipe_documents(request.app.state.rag):
+        dish_name = str(doc.metadata.get("dish_name", "")).casefold()
+        if dish_name and (keyword in dish_name or dish_name in keyword):
+            matches.append(_recipe_summary(doc))
+    return {
+        "query": value,
+        "results": sorted(matches, key=lambda item: item["dish_name"])[:limit],
     }
 
 

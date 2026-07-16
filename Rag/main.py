@@ -15,6 +15,7 @@ from neo4j import GraphDatabase
 from config import DEFAULT_CONFIG, RAGConfig
 from rag_modules.generation_integration import GenerationIntegrationModule
 from rag_modules.milvus_index_construction import MilvusIndexConstructionModule
+from rag_modules.recipe_metadata import infer_recipe_metadata
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -91,12 +92,21 @@ class GraphRecipeDataModule:
                     "## 操作\n" + "\n".join(step_lines) if step_lines else "",
                     "## 附加内容\n" + str(recipe.get("tags") or "") if recipe.get("tags") else "",
                 ]))
+                inferred = infer_recipe_metadata(
+                    name,
+                    content,
+                    str(recipe.get("filePath") or ""),
+                    category,
+                )
                 docs.append(Document(page_content=content, metadata={
                     "parent_id": str(recipe["nodeId"]), "node_id": str(recipe["nodeId"]),
                     "dish_name": name, "recipe_name": name, "category": category,
                     "difficulty": _difficulty(recipe.get("difficulty")),
                     "cook_time": str(recipe.get("cookTime") or ""),
                     "servings": str(recipe.get("servings") or ""), "full_text": content,
+                    "dish_type": inferred["dish_type"],
+                    "taste_tags": inferred["taste_tags"],
+                    "ingredients": inferred["ingredients"],
                 }))
         self.documents = docs
         return docs
