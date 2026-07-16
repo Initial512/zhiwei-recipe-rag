@@ -211,6 +211,17 @@ class MilvusIndexConstructionModule:
         except Exception as e:
             logger.error(f"创建索引失败: {e}")
             return False
+
+    def _wait_until_loaded(self, timeout_seconds: float = 60, poll_interval: float = 0.5) -> None:
+        """Wait for Milvus to report the collection as loaded, with a bounded timeout."""
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            state = self.client.get_load_state(collection_name=self.collection_name).get("state")
+            state_name = getattr(state, "name", str(state)).lower()
+            if state_name == "loaded":
+                return
+            time.sleep(poll_interval)
+        raise TimeoutError(f"Milvus collection {self.collection_name} did not load in time")
     
     def build_vector_index(self, chunks: List[Document]) -> bool:
         """
@@ -275,9 +286,9 @@ class MilvusIndexConstructionModule:
             self.client.load_collection(self.collection_name)
             logger.info("集合已加载到内存")
             
-            # 7. 等待索引构建完成
-            logger.info("等待索引构建完成...")
-            time.sleep(2)
+            # 7. 等待集合加载完成，避免固定休眠在慢环境下失效。
+            logger.info("等待 Milvus 集合加载完成...")
+            self._wait_until_loaded()
             
             logger.info(f"向量索引构建完成，包含 {len(chunks)} 个向量")
             return True

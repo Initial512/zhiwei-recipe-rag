@@ -18,8 +18,13 @@ COPY data /app/data
 # depend on a model download.
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-zh-v1.5')"
 
+RUN addgroup --system app && adduser --system --ingroup app app \
+    && chown -R app:app /app
+
 WORKDIR /app/Rag
 
 EXPOSE 7860
+
+USER app
 
 CMD ["python", "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "7860"]

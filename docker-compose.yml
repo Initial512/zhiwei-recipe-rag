@@ -1,3 +1,5 @@
+name: zhiwei
+
 services:
   neo4j:
     image: neo4j:5.11-community
@@ -7,9 +9,6 @@ services:
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_apoc_import_file_enabled: "true"
       NEO4J_apoc_import_file_use__neo4j__config: "true"
-    ports:
-      - "7474:7474"
-      - "7687:7687"
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
@@ -42,8 +41,8 @@ services:
   milvus-minio:
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY in Rag/.env}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY in Rag/.env}
     command: minio server /minio_data
     volumes: [minio_data:/minio_data]
 
@@ -54,7 +53,6 @@ services:
       ETCD_ENDPOINTS: milvus-etcd:2379
       MINIO_ADDRESS: milvus-minio:9000
     volumes: [milvus_data:/var/lib/milvus]
-    ports: ["19530:19530"]
     depends_on: [milvus-etcd, milvus-minio]
 
   backend:
@@ -68,7 +66,8 @@ services:
       NEO4J_DATABASE: neo4j
       MILVUS_HOST: milvus
       MILVUS_PORT: 19530
-      CORS_ORIGINS: http://localhost,http://127.0.0.1
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://127.0.0.1}
+      HF_HUB_OFFLINE: "1"
     ports: ["7860:7860"]
     depends_on:
       neo4j-init:

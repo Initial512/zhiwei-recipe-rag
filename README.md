@@ -80,6 +80,8 @@ flowchart TD
 
 Docker Compose 会启动 Neo4j、Milvus 及其依赖、FastAPI 后端和 Nginx 前端。首次运行时，系统仅在空 Neo4j 数据库中导入图谱，并为初始 Milvus collection 创建向量索引；后续启动复用数据卷。
 
+当前激活链路为 GraphRecipeDataModule（Neo4j）→ GraphHybridRetrieval（Neo4j + Milvus）→ GenerationIntegrationModule（LLM）。`Rag/rag_modules/` 中标为 experimental 的旧模块未接入运行中的 API。
+
 ## 📁 项目结构
 
 ~~~text
@@ -177,6 +179,8 @@ LLM_BASE_URL=https://your-openai-compatible-endpoint
 LLM_MODEL=your-model-name
 LLM_API_KEY=your-api-key
 NEO4J_PASSWORD=replace-with-a-strong-password
+MINIO_ACCESS_KEY=replace-with-a-minio-username
+MINIO_SECRET_KEY=replace-with-a-strong-minio-password
 ~~~
 
 | 变量 | 用途 |
@@ -185,6 +189,8 @@ NEO4J_PASSWORD=replace-with-a-strong-password
 | LLM_MODEL | 服务商支持的模型名称 |
 | LLM_API_KEY | 服务商签发的 API Key |
 | NEO4J_PASSWORD | Docker 中 Neo4j 使用的密码 |
+| MINIO_ACCESS_KEY | Milvus 依赖的 MinIO 用户名 |
+| MINIO_SECRET_KEY | Milvus 依赖的 MinIO 强密码 |
 
 LLM_BASE_URL、LLM_MODEL 和 LLM_API_KEY 缺少任一项，后端均无法启动。不要将真实密钥提交到 Git；项目已忽略 Rag/.env。
 
@@ -310,7 +316,7 @@ LLM_API_KEY=...
 
 ### 端口被占用
 
-默认端口为前端 80、后端 7860、Neo4j 浏览器 7474、Neo4j Bolt 7687 和 Milvus 19530。例如查看后端端口：
+默认仅暴露前端 80 和后端 7860；Neo4j、Milvus 与 MinIO 只在 Docker Compose 内部网络中可访问。例如查看后端端口：
 
 ~~~powershell
 Get-NetTCPConnection -LocalPort 7860

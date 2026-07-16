@@ -17,8 +17,15 @@ import aromaImage from "./assets/aroma-chopsticks-transparent.png";
 import { chooseSearchMode, hasRecipeQuestionIntent } from "./searchRouting.js";
 
 const quickQuestions = ["推荐几道简单的汤", "今晚想吃点辣的", "适合夏天的饮品"];
+const MAX_CHAT_LENGTH = 1000;
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 const apiUrl = (path) => `${API_BASE_URL}${path}`;
+
+function recipeImageUrl(imageUrl) {
+  return typeof imageUrl === "string" && imageUrl.startsWith("/recipe-images/")
+    ? apiUrl(imageUrl)
+    : "";
+}
 
 function parseLocation(historyState = window.history.state) {
   const path = window.location.pathname;
@@ -53,16 +60,17 @@ function CategoryArtwork({ category, className = "" }) {
 
 function RecipeArtwork({ recipe, className = "" }) {
   const [failed, setFailed] = useState(false);
+  const imageUrl = recipeImageUrl(recipe.image_url);
 
   useEffect(() => setFailed(false), [recipe.image_url]);
 
-  if (!recipe.image_url || failed) {
+  if (!imageUrl || failed) {
     return <CategoryArtwork category={recipe.category} className={className} />;
   }
   return (
     <div className={`category-artwork recipe-artwork has-image ${className}`}>
       <img
-        src={apiUrl(recipe.image_url)}
+        src={imageUrl}
         alt={`${recipe.dish_name}成品图`}
         loading="lazy"
         onError={() => setFailed(true)}
@@ -179,7 +187,10 @@ export function App() {
         return response.json();
       })
       .then(setCategories)
-      .catch(() => setCatalogError("暂时无法连接菜谱知识库，请确认后端服务已启动。"));
+      .catch((requestError) => {
+        console.error("加载分类失败", requestError);
+        setCatalogError("暂时无法连接菜谱知识库，请确认后端服务已启动。");
+      });
   }, []);
 
   const loadRecommendations = useCallback(() => {
@@ -191,7 +202,10 @@ export function App() {
         return response.json();
       })
       .then(setRecommendations)
-      .catch(() => setRecommendationsError("暂时无法获取推荐菜，请稍后重试。"))
+      .catch((requestError) => {
+        console.error("加载推荐失败", requestError);
+        setRecommendationsError("暂时无法获取推荐菜，请稍后重试。");
+      })
       .finally(() => setRecommendationsLoading(false));
   }, []);
 
@@ -212,7 +226,10 @@ export function App() {
         })
         .then(setRecipes)
         .catch((requestError) => {
-          if (requestError.name !== "AbortError") setCatalogError("菜谱列表加载失败，请稍后重试。");
+          if (requestError.name !== "AbortError") {
+            console.error("加载菜谱列表失败", requestError);
+            setCatalogError("菜谱列表加载失败，请稍后重试。");
+          }
         });
     }, 180);
     return () => {
@@ -237,7 +254,10 @@ export function App() {
       })
       .then(setDetail)
       .catch((requestError) => {
-        if (requestError.name !== "AbortError") setDetailError(requestError.message);
+        if (requestError.name !== "AbortError") {
+          console.error("加载菜谱详情失败", requestError);
+          setDetailError(requestError.message);
+        }
       })
       .finally(() => setDetailLoading(false));
     return () => controller.abort();
@@ -258,7 +278,10 @@ export function App() {
       })
       .then((data) => setSearchResults(data.results || []))
       .catch((requestError) => {
-        if (requestError.name !== "AbortError") setSearchError("暂时无法搜索菜谱，请稍后重试。");
+        if (requestError.name !== "AbortError") {
+          console.error("搜索菜谱失败", requestError);
+          setSearchError("暂时无法搜索菜谱，请稍后重试。");
+        }
       })
       .finally(() => setSearching(false));
     return () => controller.abort();
@@ -284,6 +307,7 @@ export function App() {
       setAnswerRecipeResults(data.results || []);
     } catch (requestError) {
       if (requestError.name !== "AbortError") {
+        console.error("加载菜谱卡片失败", requestError);
         setError(requestError.message || "菜谱加载失败");
       }
     } finally {
@@ -310,13 +334,28 @@ export function App() {
         signal: controller.signal,
       });
       await readEventStream(response, {
-        sources: (data) => setSources(JSON.parse(data)),
+        sources: (data) => {
+          try {
+            setSources(JSON.parse(data));
+          } catch (parseError) {
+            console.error("忽略无效的 SSE sources 帧", parseError);
+          }
+        },
         delta: (data) => setAnswer((current) => current + data),
-        error: (data) => setError(JSON.parse(data).message || "生成回答失败"),
+        error: (data) => {
+          try {
+            setError(JSON.parse(data).message || "生成回答失败");
+          } catch (parseError) {
+            console.error("忽略无效的 SSE error 帧", parseError);
+          }
+        },
         done: () => setStreaming(false),
       }, controller.signal);
     } catch (requestError) {
-      if (requestError.name !== "AbortError") setError(requestError.message || "生成回答失败");
+      if (requestError.name !== "AbortError") {
+        console.error("读取流式回答失败", requestError);
+        setError(requestError.message || "生成回答失败");
+      }
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
       setStreaming(false);
@@ -400,8 +439,9 @@ export function App() {
       const data = await response.json();
       const results = data.results || [];
       openAnswerPage(value, chooseSearchMode(value, results), results);
-    } catch {
-      openAnswerPage(value, "recipe");
+    } catch (requestError) {
+      console.error("检索模式判断失败", requestError);
+      setSearchError("检索失败，请重试。");
     } finally {
       setSearching(false);
     }
@@ -545,8 +585,9 @@ export function App() {
                   <input
                     className="chat-input"
                     placeholder="想吃什么？问问知味"
-                    value={chatInput}
-                    onChange={(event) => setChatInput(event.target.value)}
+                  value={chatInput}
+                    onChange={(event) => setChatInput(event.target.value.slice(0, MAX_CHAT_LENGTH))}
+                    maxLength={MAX_CHAT_LENGTH}
                     aria-label="输入菜谱问题"
                   />
                   <button className="chat-send-button" disabled={!chatInput.trim() || searching} aria-label="搜索菜谱">
@@ -738,7 +779,8 @@ export function App() {
             <span><Sparkle size={21} weight="fill" /></span>
             <input
               value={answerInput}
-              onChange={(event) => setAnswerInput(event.target.value)}
+              onChange={(event) => setAnswerInput(event.target.value.slice(0, MAX_CHAT_LENGTH))}
+              maxLength={MAX_CHAT_LENGTH}
               placeholder="继续问知味"
               aria-label="继续向知味提问"
             />
@@ -828,7 +870,8 @@ export function App() {
                   <span><Sparkle size={22} weight="fill" /></span>
                   <input
                     value={detailQuestion}
-                    onChange={(event) => setDetailQuestion(event.target.value)}
+                    onChange={(event) => setDetailQuestion(event.target.value.slice(0, MAX_CHAT_LENGTH))}
+                    maxLength={MAX_CHAT_LENGTH}
                     placeholder={`继续问知味：${detail.dish_name}还能怎么做？`}
                     aria-label={`询问关于${detail.dish_name}的问题`}
                   />

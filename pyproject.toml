@@ -11,7 +11,7 @@ exclude = [".venv", "__pycache__", "node_modules"]
 # E/F：错误与基础规范；I：import 排序；UP：现代语法；
 # B：易错写法（如 .strip() 误用）；C4：推导式；SIM：简化；
 # ARG：未使用参数；PL：pylint 子集；RUF：ruff 自有规则
-select = ["E", "F", "I", "UP", "B", "C4", "SIM", "ARG", "PL"]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "ARG", "PL", "S608"]
 ignore = ["PLR2004", "PLR0913", "PLR0912", "PLR0915"]
 # 注意：不启用 RUF001/002/003——它们会把中文全角标点（，：！）误报为“歧义字符”，
 # 而本项目大量字符串本就是中文文本，开启会制造海量噪音。

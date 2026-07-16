@@ -21,4 +21,6 @@ def test_llm_configuration_comes_from_environment(monkeypatch):
         max_tokens=2048,
         api_key="test-key",
         base_url="https://llm.example.com/v1",
+        request_timeout=30,
+        max_retries=2,
     )

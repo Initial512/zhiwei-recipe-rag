@@ -1,3 +1,4 @@
+# EXPERIMENTAL: legacy Markdown pipeline, not wired into the running API pipeline.
 """
 数据准备模块
 """

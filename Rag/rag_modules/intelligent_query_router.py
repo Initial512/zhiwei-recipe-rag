@@ -1,3 +1,4 @@
+# EXPERIMENTAL: not wired into the running pipeline. Do not import from api.py.
 """
 智能查询路由器
 根据查询特点自动选择最适合的检索策略：
@@ -332,4 +333,3 @@ class IntelligentQueryRouter:
         
         return explanation
 
- 

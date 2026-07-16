@@ -8,6 +8,7 @@ import mimetypes
 import os
 import random
 import re
+import uuid
 from contextlib import asynccontextmanager
 from itertools import chain
 from pathlib import Path
@@ -19,6 +20,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from main import RecipeRAGSystem
 from rag_modules.recipe_metadata import (
@@ -29,6 +33,7 @@ from rag_modules.recipe_metadata import (
 )
 
 logger = logging.getLogger(__name__)
+limiter = Limiter(key_func=get_remote_address)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RECIPE_IMAGE_DIR = PROJECT_ROOT / "data" / "图片"
@@ -405,7 +410,7 @@ def _sse(event: str, data) -> str:
     return f"event: {event}\n{data_lines}\n\n"
 
 
-def _event_stream(request: Request, docs, chunks: Iterator[str]):
+def _event_stream(docs, chunks: Iterator[str]):
     try:
         yield _sse("sources", _unique_sources(docs))
         for chunk in chunks:
@@ -413,9 +418,10 @@ def _event_stream(request: Request, docs, chunks: Iterator[str]):
                 continue
             yield _sse("delta", chunk)
         yield _sse("done", {"ok": True})
-    except Exception as exc:
-        logger.exception("流式回答失败")
-        yield _sse("error", {"message": str(exc) or "生成回答失败"})
+    except Exception:
+        trace_id = uuid.uuid4().hex[:12]
+        logger.exception("流式回答失败 trace_id=%s", trace_id)
+        yield _sse("error", {"message": "生成回答失败", "trace_id": trace_id})
 
 
 @asynccontextmanager
@@ -428,6 +434,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="知味 AI Recipe API", version="1.0.0", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.mount("/recipe-images", StaticFiles(directory=RECIPE_IMAGE_DIR), name="recipe-images")
 cors_origins = [
     origin.strip()
@@ -592,32 +600,35 @@ def recommendations(
 
 
 @app.post("/api/chat/stream")
+@limiter.limit("10/minute")
 def chat_stream(payload: ChatRequest, request: Request):
     docs, chunks = _prepare_answer(request.app.state.rag, payload.question.strip())
     return StreamingResponse(
-        _event_stream(request, docs, chunks),
+        _event_stream(docs, chunks),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
 @app.post("/api/assistant/stream")
+@limiter.limit("10/minute")
 def assistant_stream(payload: ChatRequest, request: Request):
     chunks = request.app.state.rag.generation_module.generate_assistant_answer_stream(
         payload.question.strip()
     )
     return StreamingResponse(
-        _event_stream(request, [], chunks),
+        _event_stream([], chunks),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
 @app.post("/api/recipes/{dish_name}/ingredients/stream")
+@limiter.limit("10/minute")
 def ingredients_stream(dish_name: str, request: Request):
     docs, chunks = _prepare_ingredients(request.app.state.rag, unquote(dish_name))
     return StreamingResponse(
-        _event_stream(request, docs, chunks),
+        _event_stream(docs, chunks),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

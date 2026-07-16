@@ -1,3 +1,4 @@
+# EXPERIMENTAL: not wired into the running pipeline. Do not import from api.py.
 """
 真正的图RAG检索模块
 基于图结构的知识推理和检索，而非简单的关键词匹配
@@ -631,4 +632,4 @@ class GraphRAGRetrieval:
         """关闭资源连接"""
         if hasattr(self, 'driver') and self.driver:
             self.driver.close()
-            logger.info("图RAG检索系统已关闭") 
+            logger.info("图RAG检索系统已关闭")

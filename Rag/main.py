@@ -187,7 +187,7 @@ class GraphHybridRetrieval:
 
     def _milvus_search(self, query: str, top_k: int) -> list[Document]:
         try:
-            results = self.milvus.search_similar_documents(query, k=top_k)
+            results = self.milvus.similarity_search(query, k=top_k)
         except Exception:
             logger.exception("Milvus semantic search failed; retaining graph results")
             return []

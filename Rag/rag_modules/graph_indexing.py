@@ -1,3 +1,4 @@
+# EXPERIMENTAL: not wired into the running pipeline. Do not import from api.py.
 """
 图索引模块
 实现实体和关系的键值对结构 (K,V)
@@ -384,4 +385,4 @@ class GraphIndexingModule:
                 "Ingredient": len([kv for kv in self.entity_kv_store.values() if kv.entity_type == "Ingredient"]),
                 "CookingStep": len([kv for kv in self.entity_kv_store.values() if kv.entity_type == "CookingStep"])
             }
-        } 
+        }

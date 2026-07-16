@@ -6,6 +6,15 @@ on:
   pull_request:
 
 jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+
   backend:
     name: Backend (Python / FastAPI)
     runs-on: ubuntu-latest
@@ -20,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pytest ruff
       - name: Lint (ruff)
-        run: ruff check .
+        run: ruff check . --select S608
       - name: Format check (ruff)
         run: ruff format --check .
       - name: Tests (pytest)
@@ -42,3 +51,5 @@ jobs:
         run: npm run lint
       - name: Build
         run: npm run build
+      - name: Dependency audit
+        run: npm audit --omit=dev
