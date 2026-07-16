@@ -330,6 +330,10 @@ def _parse_recipe_doc(doc) -> dict:
         "step_groups": _parse_step_groups(content),
         "tips": tips,
     }
+    if doc.metadata.get("cook_time"):
+        result["cook_time"] = str(doc.metadata["cook_time"])
+    if doc.metadata.get("servings"):
+        result["servings"] = str(doc.metadata["servings"])
     if time_match:
         result["cook_time"] = f"{time_match.group(1)}{time_match.group(2)}"
     if serving_match:

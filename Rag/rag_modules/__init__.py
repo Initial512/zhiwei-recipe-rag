@@ -1,13 +1,6 @@
-from .data_preparation import DataPreparationModule
-from .index_construction import IndexConstructionModule
-from .retrieval_optimization import RetrievalOptimizationModule
+"""GraphRAG support modules for the FastAPI service."""
+
 from .generation_integration import GenerationIntegrationModule
+from .milvus_index_construction import MilvusIndexConstructionModule
 
-__all__ = [
-    'DataPreparationModule',
-    'IndexConstructionModule', 
-    'RetrievalOptimizationModule',
-    'GenerationIntegrationModule'
-]
-
-__version__ = "1.0.0"
+__all__ = ["GenerationIntegrationModule", "MilvusIndexConstructionModule"]

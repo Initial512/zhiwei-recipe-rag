@@ -4,7 +4,6 @@ langchain-text-splitters==0.3.8
 langchain-unstructured==0.1.6
 langchain-community==0.3.27
 langchain-openai>=0.3.0,<1.0.0
-faiss-cpu>=1.7.0
 unstructured==0.18.11
 Markdown==3.8.2
 sentence-transformers>=3.0.0
@@ -13,3 +12,5 @@ rank_bm25==0.2.2
 openai>=1.86.0,<2.0.0
 fastapi>=0.115.0,<1.0.0
 uvicorn[standard]>=0.34.0,<1.0.0
+neo4j>=5.0.0,<6.0.0
+pymilvus==2.5.11

@@ -1,0 +1,26 @@
+# 统一 Python 工具配置：ruff 负责 lint + format
+# 运行：pip install ruff && ruff check Rag && ruff format --check Rag
+# 自动修复：ruff check Rag --fix && ruff format Rag
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".venv", "__pycache__", "node_modules"]
+
+[tool.ruff.lint]
+# E/F：错误与基础规范；I：import 排序；UP：现代语法；
+# B：易错写法（如 .strip() 误用）；C4：推导式；SIM：简化；
+# ARG：未使用参数；PL：pylint 子集；RUF：ruff 自有规则
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "ARG", "PL"]
+ignore = ["PLR2004", "PLR0913", "PLR0912", "PLR0915"]
+# 注意：不启用 RUF001/002/003——它们会把中文全角标点（，：！）误报为“歧义字符”，
+# 而本项目大量字符串本就是中文文本，开启会制造海量噪音。
+
+[tool.ruff.lint.per-file-ignores]
+# main.py 是带 CLI 输出的入口脚本，print 是有意的
+"Rag/main.py" = ["T201"]
+"**/test_*.py" = ["T201", "PLR2004"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

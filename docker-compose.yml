@@ -1,28 +1,86 @@
 services:
+  neo4j:
+    image: neo4j:5.11-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in Rag/.env}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in Rag/.env}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - ./data/graph/cypher:/var/lib/neo4j/import:ro
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p '$$NEO4J_PASSWORD' 'RETURN 1' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 40s
+
+  neo4j-init:
+    image: neo4j:5.11-community
+    environment:
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in Rag/.env}
+    volumes:
+      - ./data/graph/cypher:/import:ro
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    command: >
+      bash -ec "count=$$(cypher-shell -a bolt://neo4j:7687 -u neo4j -p \"$$NEO4J_PASSWORD\" 'MATCH (n) RETURN count(n)' --format plain | tail -n 1);
+      if [ \"$$count\" = \"0\" ]; then cypher-shell -a bolt://neo4j:7687 -u neo4j -p \"$$NEO4J_PASSWORD\" -f /import/neo4j_import.cypher; fi"
+
+  milvus-etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls=http://0.0.0.0:2379 --data-dir=/etcd
+    volumes: [etcd_data:/etcd]
+
+  milvus-minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    command: minio server /minio_data
+    volumes: [minio_data:/minio_data]
+
+  milvus:
+    image: milvusdb/milvus:v2.3.2
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: milvus-etcd:2379
+      MINIO_ADDRESS: milvus-minio:9000
+    volumes: [milvus_data:/var/lib/milvus]
+    ports: ["19530:19530"]
+    depends_on: [milvus-etcd, milvus-minio]
+
   backend:
     build:
       context: .
       dockerfile: Dockerfile
-    image: zhiwei-recipe-backend:local
-    env_file:
-      - Rag/.env
+    env_file: [Rag/.env]
     environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_DATABASE: neo4j
+      MILVUS_HOST: milvus
+      MILVUS_PORT: 19530
       CORS_ORIGINS: http://localhost,http://127.0.0.1
-    ports:
-      - "7860:7860"
+    ports: ["7860:7860"]
+    depends_on:
+      neo4j-init:
+        condition: service_completed_successfully
+      milvus:
+        condition: service_started
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:7860/api/health', timeout=5)); raise SystemExit(0 if data.get('status') == 'ok' and data.get('ready') else 1)",
-        ]
+      test: ["CMD", "python", "-c", "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:7860/api/health')); raise SystemExit(0 if d.get('ready') else 1)"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 90s
-    restart: unless-stopped
+      start_period: 180s
 
   frontend:
     build:
@@ -30,10 +88,14 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ""
-    image: zhiwei-recipe-frontend:local
     depends_on:
       backend:
         condition: service_healthy
-    ports:
-      - "80:80"
-    restart: unless-stopped
+    ports: ["80:80"]
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  etcd_data:
+  minio_data:
+  milvus_data:

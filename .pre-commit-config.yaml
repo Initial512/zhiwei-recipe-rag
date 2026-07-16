@@ -1,0 +1,36 @@
+# 安装：pip install pre-commit && pre-commit install
+# 作用：提交前自动拦截 格式/基础错误/大文件/密钥泄露，让人工审查聚焦“设计层面”
+# 全量检查：pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=1500"]
+      - id: check-merge-conflict
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v9.13.0
+    hooks:
+      - id: eslint
+        files: ^zhiwei-web/
+        additional_dependencies:
+          - eslint@9
+          - eslint-plugin-react@7
+          - eslint-plugin-react-hooks@5
+          - globals@15
