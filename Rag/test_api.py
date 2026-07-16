@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from api import (
@@ -13,6 +15,7 @@ from api import (
     _sse,
     _unique_sources,
     app,
+    search_recipe_names,
 )
 from main import GraphRecipeDataModule
 from rag_modules.data_preparation import DataPreparationModule
@@ -227,3 +230,32 @@ def test_local_recipe_rule_takes_priority_over_model():
     system = _classification_system(model_result="assistant")
 
     assert _classify_query(system, "推荐几道辣菜") == "recipe"
+
+
+def _recipe_name_search_request():
+    documents = [
+        SimpleNamespace(
+            metadata={"dish_name": "宫保鸡丁", "category": "荤菜", "difficulty": "中等"},
+            page_content="# 宫保鸡丁\n\n经典川菜。",
+        ),
+    ]
+    system = SimpleNamespace(
+        data_module=SimpleNamespace(
+            documents=documents,
+            get_supported_categories=lambda: ["荤菜"],
+        )
+    )
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(rag=system)))
+
+
+def test_recipe_name_search_matches_only_recipe_names():
+    result = search_recipe_names(_recipe_name_search_request(), "宫保鸡丁", limit=12)
+
+    assert result["results"][0]["dish_name"] == "宫保鸡丁"
+
+
+def test_recipe_name_search_rejects_whitespace_query():
+    with pytest.raises(HTTPException, match="查询内容不能为空") as error:
+        search_recipe_names(_recipe_name_search_request(), "   ", limit=12)
+
+    assert error.value.status_code == 422
