@@ -45,7 +45,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(200, 79, 46,
 .brand span { font-family: "Noto Serif SC", serif; font-size: 30px; font-weight: 700; letter-spacing: 1px; }
 .brand i { display: grid; place-items: center; width: 21px; height: 31px; border: 1px solid var(--accent); border-radius: 12px; color: var(--accent); font-size: 10px; font-style: normal; }
 .header-actions { justify-self: end; }
-nav { height: 100%; display: flex; align-items: center; gap: 38px; }
+nav { position: absolute; left: 50%; height: 100%; display: flex; align-items: center; gap: 38px; transform: translateX(-50%); white-space: nowrap; }
 .nav-link { position: relative; border: 0; padding: 10px 0 13px; background: transparent; font-family: "Noto Serif SC", serif; font-size: 17px; cursor: pointer; }
 .nav-link::after { content: ""; position: absolute; left: 50%; right: 50%; bottom: 3px; height: 2px; background: var(--accent); transition: left .18s ease, right .18s ease; }
 .nav-link:hover::after, .nav-link:focus-visible::after, .nav-menu.open .nav-link::after { left: 0; right: 0; }
@@ -73,7 +73,7 @@ nav { height: 100%; display: flex; align-items: center; gap: 38px; }
   transform: translate(-50%, -8px);
   transition: opacity .16s ease, transform .16s ease, visibility .16s ease;
 }
-.nav-menu:hover .category-menu, .nav-menu:focus-within .category-menu, .nav-menu.open .category-menu {
+.nav-menu.open .category-menu {
   opacity: 1;
   visibility: visible;
   transform: translate(-50%, 0);
@@ -435,13 +435,12 @@ h1 { margin: 0; font-family: "Noto Serif SC", "Songti SC", serif; font-size: cla
   .brand { flex: 0 0 auto; }
   .brand span { font-size: 22px; white-space: nowrap; }
   .brand i { display: none; }
-  nav { height: 100%; gap: 15px; margin-left: auto; }
+  nav { height: 100%; gap: 15px; margin-left: 0; }
   .nav-link { font-size: 15px; }
   .header-actions { display: none; }
   .nav-menu-toggle { display: grid; }
   .category-menu { position: fixed; top: 68px; left: 50%; width: calc(100vw - 30px); grid-template-columns: repeat(3, 1fr); transform: translate(-50%, -8px); }
-  .nav-menu:hover .category-menu { opacity: 0; visibility: hidden; transform: translate(-50%, -8px); }
-  .nav-menu:focus-within .category-menu, .nav-menu.open .category-menu { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+  .nav-menu.open .category-menu { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
   .hero, .room-backdrop { min-height: 620px; }
   .hero-content { top: 47%; padding: 12px; }
   h1 { font-size: clamp(39px, 12vw, 55px); }

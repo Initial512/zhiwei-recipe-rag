@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY Rag/requirements.txt /app/Rag/requirements.txt
 RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.6.0 \
     && python -m pip install --no-cache-dir -r /app/Rag/requirements.txt
 
 COPY Rag /app/Rag
