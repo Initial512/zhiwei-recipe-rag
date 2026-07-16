@@ -14,6 +14,7 @@ from api import (
     _unique_sources,
     app,
 )
+from main import GraphRecipeDataModule
 from rag_modules.data_preparation import DataPreparationModule
 
 
@@ -59,7 +60,7 @@ def test_categories_have_stable_declared_order():
     ]
 
 
-def test_all_unique_recipes_includes_other_and_deduplicates():
+def test_all_unique_recipes_excludes_unknown_categories_and_deduplicates():
     documents = [
         SimpleNamespace(metadata={"dish_name": "番茄汤", "category": "汤品", "difficulty": "简单"}),
         SimpleNamespace(metadata={"dish_name": "番茄汤", "category": "汤品", "difficulty": "简单"}),
@@ -82,13 +83,14 @@ def test_all_unique_recipes_includes_other_and_deduplicates():
             "difficulty": "中等",
             "image_url": "/recipe-images/%E5%A5%B6%E8%8C%B6.webp",
         },
-        {
-            "dish_name": "地方小吃",
-            "category": "其他",
-            "difficulty": "未知",
-            "image_url": None,
-        },
     ]
+
+
+def test_graph_category_normalization_keeps_source_recipes_visible():
+    assert GraphRecipeDataModule.normalize_category("汤类") == "汤品"
+    assert GraphRecipeDataModule.normalize_category("饮料") == "饮品"
+    assert GraphRecipeDataModule.normalize_category("汤类,早餐,主食") == "汤品"
+    assert GraphRecipeDataModule.normalize_category("甜品") == "甜品"
 
 
 def test_image_url_uses_encoded_unicode_filename():

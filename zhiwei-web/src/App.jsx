@@ -328,74 +328,12 @@ export function App() {
     window.scrollTo({ top: 0 });
   }, []);
 
-  const submitSearch = async (question) => {
+  const submitSearch = (question) => {
     const value = question.trim();
-    if (!value || searching) return;
-    abortRef.current?.abort();
-    queryAbortRef.current?.abort();
-    const controller = new AbortController();
-    queryAbortRef.current = controller;
+    if (!value) return;
     setChatInput("");
-    setSearching(true);
-    try {
-      const classificationController = new AbortController();
-      const cancelClassification = () => classificationController.abort();
-      controller.signal.addEventListener("abort", cancelClassification, { once: true });
-      const classificationTimeout = window.setTimeout(cancelClassification, 8000);
-      const classificationResponse = await fetch(apiUrl("/api/query/classify"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: value }),
-        signal: classificationController.signal,
-      }).finally(() => {
-        window.clearTimeout(classificationTimeout);
-        controller.signal.removeEventListener("abort", cancelClassification);
-      });
-      if (!classificationResponse.ok) throw new Error("分类失败");
-      const classification = await classificationResponse.json();
-      if (classification.type === "assistant") {
-        openAnswerPage(value, "assistant");
-        return;
-      }
-
-      const response = await fetch(apiUrl(`/api/search?${new URLSearchParams({ query: value, limit: "12" })}`), {
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error("搜索失败");
-      const data = await response.json();
-      if (data.results.length) {
-        saveScrollPosition();
-        window.history.pushState({}, "", `/search?${new URLSearchParams({ q: value })}`);
-        setSearchResults(data.results);
-        setPage({ type: "search", query: value });
-        window.scrollTo({ top: 0 });
-      } else {
-        openAnswerPage(value, "recipe");
-      }
-    } catch (requestError) {
-      if (requestError.name === "AbortError" && controller.signal.aborted) return;
-      try {
-        const response = await fetch(apiUrl(`/api/search?${new URLSearchParams({ query: value, limit: "12" })}`), {
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error("搜索失败");
-        const data = await response.json();
-        if (data.results.length) {
-          saveScrollPosition();
-          window.history.pushState({}, "", `/search?${new URLSearchParams({ q: value })}`);
-          setSearchResults(data.results);
-          setPage({ type: "search", query: value });
-          window.scrollTo({ top: 0 });
-        } else {
-          openAnswerPage(value, "recipe");
-        }
-      } catch (fallbackError) {
-        if (fallbackError.name !== "AbortError") openAnswerPage(value, "recipe");
-      }
-    } finally {
-      if (queryAbortRef.current === controller) queryAbortRef.current = null;
-      setSearching(false);
-    }
+    setSearchError("");
+    openAnswerPage(value, "assistant");
   };
 
   const activeCount = useMemo(
@@ -443,25 +381,29 @@ export function App() {
         </div>
         <nav aria-label="主要导航">
           <button className="nav-link" onClick={() => goHome(true)}>首页</button>
+          <button className="nav-link" type="button">搜索</button>
           <div
             className={categoryMenuOpen ? "nav-menu open" : "nav-menu"}
-            onMouseEnter={() => setCategoryMenuOpen(true)}
-            onMouseLeave={() => setCategoryMenuOpen(false)}
           >
             <div className="nav-menu-trigger">
-              <button className="nav-link" onClick={() => goToCategory(categories[0]?.name)} aria-haspopup="menu">
-                菜系
+              <button
+                className="nav-link"
+                onClick={() => setCategoryMenuOpen((value) => !value)}
+                aria-haspopup="menu"
+                aria-expanded={categoryMenuOpen}
+              >
+                菜类
               </button>
               <button
                 className="nav-menu-toggle"
                 onClick={() => setCategoryMenuOpen((value) => !value)}
-                aria-label="展开菜系菜单"
+                aria-label="切换菜类菜单"
                 aria-expanded={categoryMenuOpen}
               >
                 <CaretDown size={14} weight="bold" />
               </button>
             </div>
-            <div className="category-menu" role="menu" aria-label="菜系分类">
+            <div className="category-menu" role="menu" aria-label="菜类分类">
               {categories.map((category) => (
                 <button
                   key={category.name}

@@ -76,10 +76,7 @@ def _is_visible_recipe(dish_name: str | None) -> bool:
 
 
 def _visible_categories(system: RecipeRAGSystem) -> list[str]:
-    categories = list(system.data_module.get_supported_categories())
-    if "其他" not in categories:
-        categories.append("其他")
-    return categories
+    return list(system.data_module.get_supported_categories())
 
 
 def _source_from_doc(doc) -> dict[str, str | None]:

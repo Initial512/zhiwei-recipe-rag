@@ -3,7 +3,7 @@ services:
     image: neo4j:5.11-community
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in Rag/.env}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in Rag/.env}
+      ZHIWEI_NEO4J_PASSWORD: ${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in Rag/.env}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_apoc_import_file_enabled: "true"
       NEO4J_apoc_import_file_use__neo4j__config: "true"
@@ -13,9 +13,9 @@ services:
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
-      - ./data/graph/cypher:/var/lib/neo4j/import:ro
+      - ./data/graph/cypher:/var/lib/neo4j/import
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p '$$NEO4J_PASSWORD' 'RETURN 1' || exit 1"]
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$$ZHIWEI_NEO4J_PASSWORD\" 'RETURN 1' || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 12

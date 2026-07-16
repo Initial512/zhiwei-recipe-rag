@@ -59,6 +59,22 @@ class MilvusIndexConstructionModule:
         if text is None:
             return ""
         return str(text)[:max_length]
+
+    @staticmethod
+    def _difficulty_value(value: Any) -> int:
+        """Map the existing Chinese difficulty labels to Milvus' integer schema."""
+        labels = {"非常简单": 1, "简单": 2, "中等": 3, "困难": 4, "非常困难": 5}
+        if isinstance(value, str):
+            if value in labels:
+                return labels[value]
+            try:
+                return int(float(value))
+            except ValueError:
+                return 0
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
     
     def _setup_client(self):
         """初始化Milvus客户端"""
@@ -233,7 +249,7 @@ class MilvusIndexConstructionModule:
                     "node_type": self._safe_truncate(chunk.metadata.get("node_type", ""), 100),
                     "category": self._safe_truncate(chunk.metadata.get("category", ""), 100),
                     "cuisine_type": self._safe_truncate(chunk.metadata.get("cuisine_type", ""), 200),
-                    "difficulty": int(chunk.metadata.get("difficulty", 0)),
+                    "difficulty": self._difficulty_value(chunk.metadata.get("difficulty")),
                     "doc_type": self._safe_truncate(chunk.metadata.get("doc_type", ""), 50),
                     "chunk_id": self._safe_truncate(chunk.metadata.get("chunk_id", f"chunk_{i}"), 150),
                     "parent_id": self._safe_truncate(chunk.metadata.get("parent_id", ""), 100)
@@ -302,7 +318,7 @@ class MilvusIndexConstructionModule:
                     "node_type": self._safe_truncate(chunk.metadata.get("node_type", ""), 100),
                     "category": self._safe_truncate(chunk.metadata.get("category", ""), 100),
                     "cuisine_type": self._safe_truncate(chunk.metadata.get("cuisine_type", ""), 200),
-                    "difficulty": int(chunk.metadata.get("difficulty", 0)),
+                    "difficulty": self._difficulty_value(chunk.metadata.get("difficulty")),
                     "doc_type": self._safe_truncate(chunk.metadata.get("doc_type", ""), 50),
                     "chunk_id": self._safe_truncate(chunk.metadata.get("chunk_id", f"new_chunk_{i}_{int(time.time())}"), 150),
                     "parent_id": self._safe_truncate(chunk.metadata.get("parent_id", ""), 100)

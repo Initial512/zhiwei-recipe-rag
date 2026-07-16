@@ -23,7 +23,14 @@ logger = logging.getLogger(__name__)
 class GraphRecipeDataModule:
     """Read-only projection of the imported Neo4j recipe graph."""
 
-    CATEGORY_ORDER = ["荤菜", "素菜", "汤品", "甜点", "早餐", "主食", "水产", "调料", "饮品"]
+    # The imported graph retains the source labels (for example “汤类” and
+    # “饮料”), while the existing frontend has stable display labels.  Keep
+    # that translation at the graph boundary so every API uses one taxonomy.
+    CATEGORY_ORDER = ["荤菜", "素菜", "汤品", "甜品", "早餐", "主食", "水产", "调料", "饮品", "半成品"]
+    CATEGORY_ALIASES = {
+        "汤类": "汤品",
+        "饮料": "饮品",
+    }
 
     def __init__(self, config: RAGConfig):
         self.config = config
@@ -33,10 +40,17 @@ class GraphRecipeDataModule:
     def get_supported_categories(self) -> list[str]:
         return self.CATEGORY_ORDER.copy()
 
+    @classmethod
+    def normalize_category(cls, value: object) -> str:
+        """Choose the primary source category and convert it to a UI label."""
+        raw = str(value or "").strip()
+        primary = next((part.strip() for part in raw.split(",") if part.strip()), "")
+        return cls.CATEGORY_ALIASES.get(primary, primary)
+
     def load_documents(self) -> list[Document]:
         query = """
         MATCH (r:Recipe)
-        WHERE r.nodeId >= '200000000' AND r.name <> '示例菜'
+        WHERE r.nodeId >= '201000000' AND r.name <> '示例菜'
         OPTIONAL MATCH (r)-[:BELONGS_TO_CATEGORY|BELONGS_TO]->(category)
         WITH r, head(collect(category.name)) AS relation_category
         OPTIONAL MATCH (r)-[req:REQUIRES]->(ingredient:Ingredient)
@@ -54,7 +68,12 @@ class GraphRecipeDataModule:
             for record in session.run(query):
                 recipe = dict(record["r"])
                 name = recipe["name"]
-                category = record["relation_category"] or recipe.get("category") or "其他"
+                # A recipe can have several BELONGS_TO_CATEGORY edges and
+                # Neo4j does not guarantee their collection order.  The CSV
+                # property preserves the source's ordered primary category.
+                category = self.normalize_category(
+                    recipe.get("category") or record["relation_category"]
+                )
                 ingredient_lines = []
                 for item in record["ingredients"]:
                     if not item["name"]:
@@ -104,8 +123,20 @@ class GraphHybridRetrieval:
 
     def initialize(self) -> None:
         if self.milvus.has_collection():
-            if not self.milvus.load_collection():
-                raise RuntimeError("Unable to load the existing Milvus collection")
+            stats = self.milvus.get_collection_stats()
+            try:
+                indexed_count = int(stats.get("row_count", 0))
+            except (TypeError, ValueError):
+                indexed_count = 0
+            if indexed_count != len(self.data_module.documents) or not self.milvus.load_collection():
+                logger.warning(
+                    "Rebuilding Milvus collection because it has %s recipes but the graph has %s",
+                    indexed_count,
+                    len(self.data_module.documents),
+                )
+                self.milvus.delete_collection()
+                if not self.milvus.build_vector_index(self.data_module.documents):
+                    raise RuntimeError("Unable to rebuild the Milvus collection")
             return
         # The graph is the source of truth. Only the initial empty Milvus volume is populated.
         if not self.milvus.build_vector_index(self.data_module.documents):
@@ -133,7 +164,7 @@ class GraphHybridRetrieval:
     def _graph_search(self, query: str, top_k: int) -> list[Document]:
         cypher = """
         MATCH (r:Recipe)
-        WHERE r.nodeId >= '200000000' AND r.name <> '示例菜'
+        WHERE r.nodeId >= '201000000' AND r.name <> '示例菜'
           AND (r.name CONTAINS $query OR coalesce(r.description, '') CONTAINS $query
                OR EXISTS { MATCH (r)-[:REQUIRES]->(i:Ingredient) WHERE i.name CONTAINS $query })
         RETURN r.nodeId AS node_id
