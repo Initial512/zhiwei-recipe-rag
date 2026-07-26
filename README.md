@@ -78,10 +78,6 @@ flowchart TD
     neo4jStore --> graphAssets["图谱导入资产<br/>data/graph/cypher"]
 ~~~
 
-Docker Compose 会启动 Neo4j、Milvus 及其依赖、FastAPI 后端和 Nginx 前端。首次运行时，系统仅在空 Neo4j 数据库中导入图谱，并为初始 Milvus collection 创建向量索引；后续启动复用数据卷。
-
-当前激活链路为 GraphRecipeDataModule（Neo4j）→ GraphHybridRetrieval（Neo4j + Milvus）→ GenerationIntegrationModule（LLM）。`Rag/rag_modules/` 中标为 experimental 的旧模块未接入运行中的 API。
-
 ## 📁 项目结构
 
 ~~~text
@@ -150,8 +146,6 @@ Windows PowerShell：
 (Get-ChildItem data\dishes -Recurse -Filter *.md -File).Count
 (Get-ChildItem data\图片 -Filter *.webp -File).Count
 ~~~
-
-当前两个结果均应为 322。若目录不存在或数量为 0，说明源码缺少菜谱或图片数据；如果 data/graph/cypher 缺失，GraphRAG 后端无法初始化图谱。
 
 ### 3. 安装运行环境
 
