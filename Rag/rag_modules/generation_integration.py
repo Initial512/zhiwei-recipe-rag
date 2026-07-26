@@ -14,13 +14,14 @@ from langchain_core.output_parsers import StrOutputParser
 
 logger = logging.getLogger(__name__)
 
+
 class GenerationIntegrationModule:
     """生成集成模块 - 负责LLM集成和回答生成"""
-    
+
     def __init__(self, temperature: float = 0.1, max_tokens: int = 2048):
         """
         初始化生成集成模块
-        
+
         Args:
             temperature: 生成温度
             max_tokens: 最大token数
@@ -31,7 +32,7 @@ class GenerationIntegrationModule:
         self.max_tokens = max_tokens
         self.llm = None
         self.setup_llm()
-    
+
     def setup_llm(self):
         """初始化大语言模型"""
         api_key = os.getenv("LLM_API_KEY")
@@ -45,9 +46,7 @@ class GenerationIntegrationModule:
             if not value
         ]
         if missing_variables:
-            raise ValueError(
-                f"请设置以下模型环境变量: {', '.join(missing_variables)}"
-            )
+            raise ValueError(f"请设置以下模型环境变量: {', '.join(missing_variables)}")
 
         logger.info(
             "正在初始化LLM: %s (%s)",
@@ -64,9 +63,9 @@ class GenerationIntegrationModule:
             request_timeout=30,
             max_retries=2,
         )
-        
+
         logger.info("LLM初始化完成")
-    
+
     def generate_basic_answer(self, query: str, context_docs: List[Document]) -> str:
         """
         生成基础回答
@@ -102,7 +101,7 @@ class GenerationIntegrationModule:
 
         response = chain.invoke(query)
         return response
-    
+
     def generate_step_by_step_answer(self, query: str, context_docs: List[Document]) -> str:
         """
         生成分步骤回答
@@ -155,7 +154,7 @@ class GenerationIntegrationModule:
 
         response = chain.invoke(query)
         return response
-    
+
     def query_rewrite(self, query: str) -> str:
         """
         智能查询重写 - 让大模型判断是否需要重写查询
@@ -198,15 +197,10 @@ class GenerationIntegrationModule:
 - "红烧肉需要什么食材" → "红烧肉需要什么食材"（保持原查询）
 
 请输出最终查询（如果不需要重写就返回原查询）:""",
-            input_variables=["query"]
+            input_variables=["query"],
         )
 
-        chain = (
-            {"query": RunnablePassthrough()}
-            | prompt
-            | self.llm
-            | StrOutputParser()
-        )
+        chain = {"query": RunnablePassthrough()} | prompt | self.llm | StrOutputParser()
 
         response = chain.invoke(query).strip()
 
@@ -217,8 +211,6 @@ class GenerationIntegrationModule:
             logger.info("查询无需重写")
 
         return response
-
-
 
     def query_router(self, query: str) -> str:
         """
@@ -248,20 +240,15 @@ class GenerationIntegrationModule:
 
 分类结果:""")
 
-        chain = (
-            {"query": RunnablePassthrough()}
-            | prompt
-            | self.llm
-            | StrOutputParser()
-        )
+        chain = {"query": RunnablePassthrough()} | prompt | self.llm | StrOutputParser()
 
         result = chain.invoke(query).strip().lower()
 
         # 确保返回有效的路由类型
-        if result in ['list', 'detail', 'general']:
+        if result in ["list", "detail", "general"]:
             return result
         else:
-            return 'general'  # 默认类型
+            return "general"  # 默认类型
 
     def classify_query_scope(self, query: str) -> str:
         """判断查询应进入菜谱检索还是饮食助手。"""
@@ -275,12 +262,7 @@ class GenerationIntegrationModule:
 
 用户问题：{query}
 分类：""")
-        chain = (
-            {"query": RunnablePassthrough()}
-            | prompt
-            | self.llm
-            | StrOutputParser()
-        )
+        chain = {"query": RunnablePassthrough()} | prompt | self.llm | StrOutputParser()
         result = chain.invoke(query).strip().lower()
         return result if result in {"recipe", "assistant"} else "assistant"
 
@@ -300,12 +282,7 @@ class GenerationIntegrationModule:
 用户问题：{query}
 
 回答：""")
-        chain = (
-            {"query": RunnablePassthrough()}
-            | prompt
-            | self.llm
-            | StrOutputParser()
-        )
+        chain = {"query": RunnablePassthrough()} | prompt | self.llm | StrOutputParser()
         for chunk in chain.stream(query):
             yield chunk
 
@@ -326,7 +303,7 @@ class GenerationIntegrationModule:
         # 提取菜品名称
         dish_names = []
         for doc in context_docs:
-            dish_name = doc.metadata.get('dish_name', '未知菜品')
+            dish_name = doc.metadata.get("dish_name", "未知菜品")
             if dish_name not in dish_names:
                 dish_names.append(dish_name)
 
@@ -334,9 +311,15 @@ class GenerationIntegrationModule:
         if len(dish_names) == 1:
             return f"为您推荐：{dish_names[0]}"
         elif len(dish_names) <= 3:
-            return f"为您推荐以下菜品：\n" + "\n".join([f"{i+1}. {name}" for i, name in enumerate(dish_names)])
+            return f"为您推荐以下菜品：\n" + "\n".join(
+                [f"{i + 1}. {name}" for i, name in enumerate(dish_names)]
+            )
         else:
-            return f"为您推荐以下菜品：\n" + "\n".join([f"{i+1}. {name}" for i, name in enumerate(dish_names[:3])]) + f"\n\n还有其他 {len(dish_names)-3} 道菜品可供选择。"
+            return (
+                f"为您推荐以下菜品：\n"
+                + "\n".join([f"{i + 1}. {name}" for i, name in enumerate(dish_names[:3])])
+                + f"\n\n还有其他 {len(dish_names) - 3} 道菜品可供选择。"
+            )
 
     def generate_basic_answer_stream(self, query: str, context_docs: List[Document]):
         """
@@ -430,38 +413,38 @@ class GenerationIntegrationModule:
     def _build_context(self, docs: List[Document], max_length: int = 2000) -> str:
         """
         构建上下文字符串
-        
+
         Args:
             docs: 文档列表
             max_length: 最大长度
-            
+
         Returns:
             格式化的上下文字符串
         """
         if not docs:
             return "暂无相关食谱信息。"
-        
+
         context_parts = []
         current_length = 0
-        
+
         for i, doc in enumerate(docs, 1):
             # 添加元数据信息
             metadata_info = f"【食谱 {i}】"
-            if 'dish_name' in doc.metadata:
+            if "dish_name" in doc.metadata:
                 metadata_info += f" {doc.metadata['dish_name']}"
-            if 'category' in doc.metadata:
+            if "category" in doc.metadata:
                 metadata_info += f" | 分类: {doc.metadata['category']}"
-            if 'difficulty' in doc.metadata:
+            if "difficulty" in doc.metadata:
                 metadata_info += f" | 难度: {doc.metadata['difficulty']}"
-            
+
             # 构建文档文本
             doc_text = f"{metadata_info}\n{doc.page_content}\n"
-            
+
             # 检查长度限制
             if current_length + len(doc_text) > max_length:
                 break
-            
+
             context_parts.append(doc_text)
             current_length += len(doc_text)
-        divider = "\n" + "="*50 + "\n"
+        divider = "\n" + "=" * 50 + "\n"
         return divider + divider.join(context_parts)

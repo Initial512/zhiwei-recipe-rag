@@ -44,9 +44,7 @@ def test_sse_keeps_unicode_and_event_name():
 
 
 def test_sse_preserves_multiline_chunks():
-    assert _sse("delta", "食材\n- 番茄") == (
-        "event: delta\ndata: 食材\ndata: - 番茄\n\n"
-    )
+    assert _sse("delta", "食材\n- 番茄") == ("event: delta\ndata: 食材\ndata: - 番茄\n\n")
 
 
 def test_categories_have_stable_declared_order():
@@ -69,7 +67,9 @@ def test_all_unique_recipes_excludes_unknown_categories_and_deduplicates():
         SimpleNamespace(metadata={"dish_name": "番茄汤", "category": "汤品", "difficulty": "简单"}),
         SimpleNamespace(metadata={"dish_name": "示例菜", "category": "荤菜", "difficulty": "未知"}),
         SimpleNamespace(metadata={"dish_name": "奶茶", "category": "饮品", "difficulty": "中等"}),
-        SimpleNamespace(metadata={"dish_name": "地方小吃", "category": "其他", "difficulty": "未知"}),
+        SimpleNamespace(
+            metadata={"dish_name": "地方小吃", "category": "其他", "difficulty": "未知"}
+        ),
     ]
     system = SimpleNamespace(
         data_module=SimpleNamespace(
@@ -111,11 +111,7 @@ def test_static_image_route_serves_unicode_filename():
 
 def test_every_real_recipe_has_a_matching_image():
     recipe_dir = RECIPE_IMAGE_DIR.parent / "dishes"
-    recipe_names = {
-        path.stem
-        for path in recipe_dir.rglob("*.md")
-        if path.stem != "示例菜"
-    }
+    recipe_names = {path.stem for path in recipe_dir.rglob("*.md") if path.stem != "示例菜"}
     image_names = {path.stem for path in RECIPE_IMAGE_DIR.glob("*.webp")}
 
     assert recipe_names <= image_names
@@ -199,7 +195,9 @@ def test_recipe_summary_preserves_image_url():
 
 def _classification_system(model_result="assistant"):
     documents = [
-        SimpleNamespace(metadata={"dish_name": "宫保鸡丁", "category": "荤菜", "difficulty": "困难"}),
+        SimpleNamespace(
+            metadata={"dish_name": "宫保鸡丁", "category": "荤菜", "difficulty": "困难"}
+        ),
     ]
     return SimpleNamespace(
         data_module=SimpleNamespace(

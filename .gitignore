@@ -1,4 +1,5 @@
 .venv/
+.env
 Rag/.env
 Rag/**/__pycache__/
 Rag/.pytest_cache/

@@ -27,7 +27,18 @@ class GraphRecipeDataModule:
     # The imported graph retains the source labels (for example “汤类” and
     # “饮料”), while the existing frontend has stable display labels.  Keep
     # that translation at the graph boundary so every API uses one taxonomy.
-    CATEGORY_ORDER = ["荤菜", "素菜", "汤品", "甜品", "早餐", "主食", "水产", "调料", "饮品", "半成品"]
+    CATEGORY_ORDER = [
+        "荤菜",
+        "素菜",
+        "汤品",
+        "甜品",
+        "早餐",
+        "主食",
+        "水产",
+        "调料",
+        "饮品",
+        "半成品",
+    ]
     CATEGORY_ALIASES = {
         "汤类": "汤品",
         "饮料": "饮品",
@@ -35,7 +46,9 @@ class GraphRecipeDataModule:
 
     def __init__(self, config: RAGConfig):
         self.config = config
-        self.driver = GraphDatabase.driver(config.neo4j_uri, auth=(config.neo4j_user, config.neo4j_password))
+        self.driver = GraphDatabase.driver(
+            config.neo4j_uri, auth=(config.neo4j_user, config.neo4j_password)
+        )
         self.documents: list[Document] = []
 
     def get_supported_categories(self) -> list[str]:
@@ -82,32 +95,56 @@ class GraphRecipeDataModule:
                     amount = "".join(str(x) for x in (item["amount"], item["unit"]) if x)
                     ingredient_lines.append(f"- {item['name']}{' = ' + amount if amount else ''}")
                 step_lines = []
-                steps = sorted((item for item in record["steps"] if item["name"]), key=lambda item: item["order"] or 9999)
+                steps = sorted(
+                    (item for item in record["steps"] if item["name"]),
+                    key=lambda item: item["order"] or 9999,
+                )
                 for index, item in enumerate(steps, 1):
-                    detail = "；".join(str(value) for value in (item["description"], item["methods"], item["tools"]) if value)
+                    detail = "；".join(
+                        str(value)
+                        for value in (item["description"], item["methods"], item["tools"])
+                        if value
+                    )
                     step_lines.append(f"{index}. {item['name']}{'：' + detail if detail else ''}")
-                content = "\n\n".join(filter(None, [
-                    f"# {name}", str(recipe.get("description") or ""),
-                    "## 食材\n" + "\n".join(ingredient_lines) if ingredient_lines else "",
-                    "## 操作\n" + "\n".join(step_lines) if step_lines else "",
-                    "## 附加内容\n" + str(recipe.get("tags") or "") if recipe.get("tags") else "",
-                ]))
+                content = "\n\n".join(
+                    filter(
+                        None,
+                        [
+                            f"# {name}",
+                            str(recipe.get("description") or ""),
+                            "## 食材\n" + "\n".join(ingredient_lines) if ingredient_lines else "",
+                            "## 操作\n" + "\n".join(step_lines) if step_lines else "",
+                            "## 附加内容\n" + str(recipe.get("tags") or "")
+                            if recipe.get("tags")
+                            else "",
+                        ],
+                    )
+                )
                 inferred = infer_recipe_metadata(
                     name,
                     content,
                     str(recipe.get("filePath") or ""),
                     category,
                 )
-                docs.append(Document(page_content=content, metadata={
-                    "parent_id": str(recipe["nodeId"]), "node_id": str(recipe["nodeId"]),
-                    "dish_name": name, "recipe_name": name, "category": category,
-                    "difficulty": _difficulty(recipe.get("difficulty")),
-                    "cook_time": str(recipe.get("cookTime") or ""),
-                    "servings": str(recipe.get("servings") or ""), "full_text": content,
-                    "dish_type": inferred["dish_type"],
-                    "taste_tags": inferred["taste_tags"],
-                    "ingredients": inferred["ingredients"],
-                }))
+                docs.append(
+                    Document(
+                        page_content=content,
+                        metadata={
+                            "parent_id": str(recipe["nodeId"]),
+                            "node_id": str(recipe["nodeId"]),
+                            "dish_name": name,
+                            "recipe_name": name,
+                            "category": category,
+                            "difficulty": _difficulty(recipe.get("difficulty")),
+                            "cook_time": str(recipe.get("cookTime") or ""),
+                            "servings": str(recipe.get("servings") or ""),
+                            "full_text": content,
+                            "dish_type": inferred["dish_type"],
+                            "taste_tags": inferred["taste_tags"],
+                            "ingredients": inferred["ingredients"],
+                        },
+                    )
+                )
         self.documents = docs
         return docs
 
@@ -138,7 +175,10 @@ class GraphHybridRetrieval:
                 indexed_count = int(stats.get("row_count", 0))
             except (TypeError, ValueError):
                 indexed_count = 0
-            if indexed_count != len(self.data_module.documents) or not self.milvus.load_collection():
+            if (
+                indexed_count != len(self.data_module.documents)
+                or not self.milvus.load_collection()
+            ):
                 logger.warning(
                     "Rebuilding Milvus collection because it has %s recipes but the graph has %s",
                     indexed_count,
@@ -160,13 +200,27 @@ class GraphHybridRetrieval:
         by_id.update({doc.metadata["parent_id"]: doc for doc in semantic_docs})
         if not by_id:
             terms = [term for term in re.split(r"\s+", query) if term]
-            return [doc for doc in self.data_module.documents if any(term in doc.page_content for term in terms)][:top_k]
+            return [
+                doc
+                for doc in self.data_module.documents
+                if any(term in doc.page_content for term in terms)
+            ][:top_k]
         return list(by_id.values())[:top_k]
 
     @staticmethod
     def _strategy(query: str) -> str:
         """Route relationship questions to graph search and broad questions to both stores."""
-        relation_markers = ("搭配", "配什么", "哪些", "含有", "不用", "替代", "关系", "步骤", "食材")
+        relation_markers = (
+            "搭配",
+            "配什么",
+            "哪些",
+            "含有",
+            "不用",
+            "替代",
+            "关系",
+            "步骤",
+            "食材",
+        )
         if any(marker in query for marker in relation_markers):
             return "graph" if len(query) < 12 else "combined"
         return "semantic"
@@ -192,8 +246,11 @@ class GraphHybridRetrieval:
             logger.exception("Milvus semantic search failed; retaining graph results")
             return []
         docs = {doc.metadata["parent_id"]: doc for doc in self.data_module.documents}
-        return [docs[result["metadata"].get("parent_id")] for result in results
-                if result["metadata"].get("parent_id") in docs]
+        return [
+            docs[result["metadata"].get("parent_id")]
+            for result in results
+            if result["metadata"].get("parent_id") in docs
+        ]
 
 
 class RecipeRAGSystem:
@@ -208,7 +265,9 @@ class RecipeRAGSystem:
         if not all(os.getenv(name) for name in ("LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY")):
             raise ValueError("LLM_BASE_URL, LLM_MODEL and LLM_API_KEY must be configured")
         self.data_module = GraphRecipeDataModule(self.config)
-        self.generation_module = GenerationIntegrationModule(self.config.temperature, self.config.max_tokens)
+        self.generation_module = GenerationIntegrationModule(
+            self.config.temperature, self.config.max_tokens
+        )
 
     def build_knowledge_base(self) -> None:
         if not self.data_module:

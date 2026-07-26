@@ -8,14 +8,39 @@ from typing import Any, Iterable
 
 
 TASTE_KEYWORDS = {
-    "辣": ("麻辣", "香辣", "酸辣", "重口味", "辣椒", "尖椒", "花椒", "豆瓣酱", "剁椒", "小米辣", "辣子"),
+    "辣": (
+        "麻辣",
+        "香辣",
+        "酸辣",
+        "重口味",
+        "辣椒",
+        "尖椒",
+        "花椒",
+        "豆瓣酱",
+        "剁椒",
+        "小米辣",
+        "辣子",
+    ),
     "清淡": ("清淡", "不辣", "少油"),
     "甜": ("甜品", "甜味", "香甜", "糖"),
     "酸": ("酸辣", "酸甜", "酸味", "醋"),
 }
 
 DISH_TYPE_KEYWORDS = {
-    "饮品": ("奶茶", "红茶", "绿茶", "果茶", "特调", "鸡尾酒", "金汤力", "长岛冰茶", "酸梅汤", "饮料", "饮品", "茶"),
+    "饮品": (
+        "奶茶",
+        "红茶",
+        "绿茶",
+        "果茶",
+        "特调",
+        "鸡尾酒",
+        "金汤力",
+        "长岛冰茶",
+        "酸梅汤",
+        "饮料",
+        "饮品",
+        "茶",
+    ),
     "蒸蛋": ("蒸水蛋", "鸡蛋羹", "水蒸蛋"),
     "羹": ("羹",),
     "粥": ("粥",),
@@ -50,8 +75,24 @@ INGREDIENT_KEYWORDS = {
 }
 
 RECOMMENDATION_MARKERS = (
-    "想吃", "想喝", "吃什么", "喝什么", "推荐", "有什么", "来点", "几个", "几道",
-    "下饭菜", "早餐", "午餐", "晚餐", "夜宵", "清淡", "少油", "不辣", "重口味",
+    "想吃",
+    "想喝",
+    "吃什么",
+    "喝什么",
+    "推荐",
+    "有什么",
+    "来点",
+    "几个",
+    "几道",
+    "下饭菜",
+    "早餐",
+    "午餐",
+    "晚餐",
+    "夜宵",
+    "清淡",
+    "少油",
+    "不辣",
+    "重口味",
 )
 
 RECIPE_SUFFIXES = ("怎么做", "的做法", "做法", "食谱", "菜谱", "需要什么食材", "的食材")
@@ -76,7 +117,9 @@ def _first_heading(content: str) -> str | None:
     return title or None
 
 
-def infer_recipe_metadata(file_stem: str, content: str, file_path: str, category: str) -> dict[str, Any]:
+def infer_recipe_metadata(
+    file_stem: str, content: str, file_path: str, category: str
+) -> dict[str, Any]:
     name = _first_heading(content) or file_stem
     searchable = f"{name}\n{content}"
 
@@ -87,11 +130,13 @@ def infer_recipe_metadata(file_stem: str, content: str, file_path: str, category
             break
 
     taste_tags = [
-        tag for tag, keywords in TASTE_KEYWORDS.items()
+        tag
+        for tag, keywords in TASTE_KEYWORDS.items()
         if any(keyword in searchable for keyword in keywords)
     ]
     ingredients = [
-        ingredient for ingredient, keywords in INGREDIENT_KEYWORDS.items()
+        ingredient
+        for ingredient, keywords in INGREDIENT_KEYWORDS.items()
         if any(keyword in searchable for keyword in keywords)
     ]
     return {
@@ -121,7 +166,8 @@ def parse_query(query: str, dish_names: Iterable[str]) -> dict[str, Any]:
     if dish_name is None:
         dish_name = next(
             (
-                name for key, name in normalized_names
+                name
+                for key, name in normalized_names
                 if len(key) >= 2
                 and key in normalized
                 and any(marker in normalized for marker in ("怎么做", "做法", "食谱", "菜谱"))
@@ -147,13 +193,15 @@ def parse_query(query: str, dish_names: Iterable[str]) -> dict[str, Any]:
             taste_tags.append(tag)
     dish_type = next(
         (
-            candidate for candidate, keywords in QUERY_DISH_TYPE_KEYWORDS.items()
+            candidate
+            for candidate, keywords in QUERY_DISH_TYPE_KEYWORDS.items()
             if any(keyword in normalized for keyword in keywords)
         ),
         None,
     )
     ingredients = [
-        ingredient for ingredient, keywords in INGREDIENT_KEYWORDS.items()
+        ingredient
+        for ingredient, keywords in INGREDIENT_KEYWORDS.items()
         if any(keyword in normalized for keyword in keywords)
     ]
     is_recommendation = bool(
@@ -181,7 +229,11 @@ def fuzzy_name_matches(query: str, documents: Iterable[Any]) -> list[Any]:
         key = normalize_query(name)
         if not key:
             continue
-        score = 1.0 if normalized in key or key in normalized else SequenceMatcher(None, normalized, key).ratio()
+        score = (
+            1.0
+            if normalized in key or key in normalized
+            else SequenceMatcher(None, normalized, key).ratio()
+        )
         if score >= 0.58:
             scored.append((score, doc))
     return [doc for _, doc in sorted(scored, key=lambda item: item[0], reverse=True)]
@@ -220,7 +272,9 @@ def rank_recommendations(
         if requested_ingredients and not requested_ingredients.issubset(doc_ingredients):
             continue
 
-        condition_count = len(requested_tastes) + len(requested_ingredients) + int(bool(requested_type))
+        condition_count = (
+            len(requested_tastes) + len(requested_ingredients) + int(bool(requested_type))
+        )
         matched_count = (
             len(requested_tastes & doc_tastes)
             + len(requested_ingredients & doc_ingredients)
@@ -230,7 +284,11 @@ def rank_recommendations(
 
         name = str(metadata.get("dish_name", ""))
         text = str(metadata.get("full_text", doc.page_content))
-        terms = [*requested_tastes, *requested_ingredients, *([requested_type] if requested_type else [])]
+        terms = [
+            *requested_tastes,
+            *requested_ingredients,
+            *([requested_type] if requested_type else []),
+        ]
         term_scores = []
         for term in terms:
             aliases = INGREDIENT_KEYWORDS.get(term, (term,))
@@ -238,10 +296,7 @@ def rank_recommendations(
             text_hit = term in text
             exact_name_hit = term in name
             term_scores.append(
-                1.0 if exact_name_hit
-                else 0.80 if name_hit
-                else 0.55 if text_hit
-                else 0.0
+                1.0 if exact_name_hit else 0.80 if name_hit else 0.55 if text_hit else 0.0
             )
         keyword_score = sum(term_scores) / max(len(term_scores), 1)
         if "辣" in requested_tastes and any(hint in name for hint in SPICY_NAME_HINTS):

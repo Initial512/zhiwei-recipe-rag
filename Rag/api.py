@@ -46,10 +46,31 @@ class ChatRequest(BaseModel):
 
 
 RECIPE_QUERY_MARKERS = (
-    "怎么做", "做法", "食材", "原料", "制作步骤", "菜谱", "推荐",
-    "吃什么", "想吃", "几道菜", "哪些菜", "菜有哪些", "配菜",
-    "早餐", "午餐", "晚餐", "夜宵", "汤品", "甜品", "主食",
-    "荤菜", "素菜", "水产", "饮品", "调料",
+    "怎么做",
+    "做法",
+    "食材",
+    "原料",
+    "制作步骤",
+    "菜谱",
+    "推荐",
+    "吃什么",
+    "想吃",
+    "几道菜",
+    "哪些菜",
+    "菜有哪些",
+    "配菜",
+    "早餐",
+    "午餐",
+    "晚餐",
+    "夜宵",
+    "汤品",
+    "甜品",
+    "主食",
+    "荤菜",
+    "素菜",
+    "水产",
+    "饮品",
+    "调料",
 )
 
 
@@ -70,10 +91,11 @@ def _classify_query(system: RecipeRAGSystem, question: str) -> str:
 
 
 def _image_url(dish_name: str) -> str | None:
-    image_path = RECIPE_IMAGE_DIR / f"{dish_name}.webp"
-    if not image_path.is_file():
-        return None
-    return f"/recipe-images/{quote(f'{dish_name}.webp')}"
+    for extension in (".webp", ".png"):
+        image_path = RECIPE_IMAGE_DIR / f"{dish_name}{extension}"
+        if image_path.is_file():
+            return f"/recipe-images/{quote(f'{dish_name}{extension}')}"
+    return None
 
 
 def _is_visible_recipe(dish_name: str | None) -> bool:
@@ -156,7 +178,9 @@ def _vector_candidates(system: RecipeRAGSystem, parsed: dict, top_k: int) -> lis
         return []
 
 
-def _lookup_recipe_documents(system: RecipeRAGSystem, parsed: dict, limit: int) -> tuple[list, bool]:
+def _lookup_recipe_documents(
+    system: RecipeRAGSystem, parsed: dict, limit: int
+) -> tuple[list, bool]:
     dish_name = parsed.get("dish_name") or ""
     exact = _find_recipe_doc(system, dish_name)
     if exact:
@@ -190,7 +214,11 @@ def _clean_markdown(text: str) -> str:
 def _section_lines(content: str, title: str) -> list[str]:
     lines = content.splitlines()
     start = next(
-        (index + 1 for index, line in enumerate(lines) if re.match(rf"^##\s+{re.escape(title)}\s*$", line.strip())),
+        (
+            index + 1
+            for index, line in enumerate(lines)
+            if re.match(rf"^##\s+{re.escape(title)}\s*$", line.strip())
+        ),
         None,
     )
     if start is None:
@@ -238,11 +266,11 @@ def _parse_ingredient_groups(content: str) -> list[dict]:
             value = bullet.group(1)
             if nested:
                 value = nested.group(1)
-            next_line = next((candidate for candidate in lines[index + 1:] if candidate.strip()), "")
+            next_line = next(
+                (candidate for candidate in lines[index + 1 :] if candidate.strip()), ""
+            )
             is_group_label = (
-                not nested
-                and "=" not in value
-                and bool(re.match(r"^\s{2,}[-*+]\s+", next_line))
+                not nested and "=" not in value and bool(re.match(r"^\s{2,}[-*+]\s+", next_line))
             )
             if is_group_label:
                 if current["items"]:
@@ -323,7 +351,9 @@ def _parse_recipe_doc(doc) -> dict:
         if line.strip() and not line.strip().startswith(("#", "!["))
     ]
     plain = _clean_markdown(content)
-    time_match = re.search(r"(?:烹饪|制作|耗时|用时|需时)[^\d]{0,8}(\d+(?:\s*[-~至]\s*\d+)?)\s*(分钟|小时)", plain)
+    time_match = re.search(
+        r"(?:烹饪|制作|耗时|用时|需时)[^\d]{0,8}(\d+(?:\s*[-~至]\s*\d+)?)\s*(分钟|小时)", plain
+    )
     serving_match = re.search(r"(\d+(?:\s*[-~至]\s*\d+)?)\s*(?:人份|人|份量)", plain)
     result = {
         **source,
@@ -383,9 +413,7 @@ def _prepare_answer(system: RecipeRAGSystem, question: str):
                 prefix,
                 system.generation_module.generate_assistant_answer_stream(question),
             )
-        return docs, system.generation_module.generate_step_by_step_answer_stream(
-            question, docs
-        )
+        return docs, system.generation_module.generate_step_by_step_answer_stream(question, docs)
 
     # 开放式需求先从 RAG 召回，再让大模型基于召回内容回答。
     # 不将召回文档作为 SSE sources 返回，前端因此不会展示菜品卡片。
@@ -473,10 +501,7 @@ def categories(request: Request):
         dish_name = doc.metadata.get("dish_name")
         if category in dishes_by_category and _is_visible_recipe(dish_name):
             dishes_by_category[category].add(dish_name)
-    return [
-        {"name": label, "count": len(dishes_by_category[label])}
-        for label in labels
-    ]
+    return [{"name": label, "count": len(dishes_by_category[label])} for label in labels]
 
 
 @app.post("/api/query/classify")
@@ -551,10 +576,7 @@ def search_recipes(
         "parsed_query": parsed,
         "exact_match": False,
         "results": [_recipe_summary(doc) for doc in matched_docs],
-        "local_message": (
-            None if matched_docs
-            else "数据库中暂时没有找到完全匹配的菜品。"
-        ),
+        "local_message": (None if matched_docs else "数据库中暂时没有找到完全匹配的菜品。"),
     }
 
 

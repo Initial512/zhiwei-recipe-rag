@@ -43,7 +43,9 @@ def test_event_stream_does_not_expose_internal_exception_details():
 def test_streaming_endpoint_is_rate_limited_per_client():
     limiter.reset()
     app.state.rag = SimpleNamespace(
-        generation_module=SimpleNamespace(generate_assistant_answer_stream=lambda question: iter(["ok"]))
+        generation_module=SimpleNamespace(
+            generate_assistant_answer_stream=lambda question: iter(["ok"])
+        )
     )
     client = TestClient(app)
 

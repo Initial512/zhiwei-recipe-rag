@@ -8,9 +8,7 @@ def test_llm_configuration_comes_from_environment(monkeypatch):
     monkeypatch.setenv("LLM_MODEL", "example-model")
     monkeypatch.setenv("LLM_API_KEY", "test-key")
 
-    with patch(
-        "rag_modules.generation_integration.ChatOpenAI"
-    ) as chat_openai:
+    with patch("rag_modules.generation_integration.ChatOpenAI") as chat_openai:
         module = GenerationIntegrationModule()
 
     assert module.base_url == "https://llm.example.com/v1"
