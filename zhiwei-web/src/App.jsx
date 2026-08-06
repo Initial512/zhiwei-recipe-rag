@@ -14,7 +14,6 @@ import {
 } from "@phosphor-icons/react";
 import roomImage from "./assets/warm-interior.png";
 import aromaImage from "./assets/aroma-chopsticks-transparent.png";
-import { chooseSearchMode, hasRecipeQuestionIntent } from "./searchRouting.js";
 
 const quickQuestions = ["推荐几道简单的汤", "今晚想吃点辣的", "适合夏天的饮品"];
 const MAX_CHAT_LENGTH = 1000;
@@ -421,30 +420,12 @@ export function App() {
     window.scrollTo({ top: 0 });
   }, []);
 
-  const submitSearch = async (question) => {
+  const submitSearch = (question) => {
     const value = question.trim();
-    if (!value || searching) return;
+    if (!value) return;
     setChatInput("");
     setSearchError("");
-    if (hasRecipeQuestionIntent(value)) {
-      openAnswerPage(value, "recipe");
-      return;
-    }
-    setSearching(true);
-    try {
-      const response = await fetch(
-        apiUrl(`/api/search/recipes?${new URLSearchParams({ query: value, limit: "12" })}`),
-      );
-      if (!response.ok) throw new Error("Recipe lookup failed");
-      const data = await response.json();
-      const results = data.results || [];
-      openAnswerPage(value, chooseSearchMode(value, results), results);
-    } catch (requestError) {
-      console.error("检索模式判断失败", requestError);
-      setSearchError("检索失败，请重试。");
-    } finally {
-      setSearching(false);
-    }
+    openAnswerPage(value, "recipe");
   };
 
   const activeCount = useMemo(

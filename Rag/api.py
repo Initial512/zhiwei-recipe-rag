@@ -9,28 +9,27 @@ import os
 import random
 import re
 import uuid
+from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from itertools import chain
 from pathlib import Path
-from typing import Iterator
 from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
-
 from main import RecipeRAGSystem
-from rag_modules.recipe_metadata import (
+from pydantic import BaseModel, Field
+from recipe_metadata import (
     canonical_retrieval_query,
     fuzzy_name_matches,
     parse_query,
     rank_recommendations,
 )
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
@@ -212,12 +211,16 @@ def _clean_markdown(text: str) -> str:
 
 
 def _section_lines(content: str, title: str) -> list[str]:
+    title_aliases = {"食材": ("食材", "所需食材"), "操作": ("操作", "制作步骤")}
+    titles = title_aliases.get(title, (title,))
     lines = content.splitlines()
     start = next(
         (
             index + 1
             for index, line in enumerate(lines)
-            if re.match(rf"^##\s+{re.escape(title)}\s*$", line.strip())
+            if any(
+                re.match(rf"^##\s+{re.escape(candidate)}\s*$", line.strip()) for candidate in titles
+            )
         ),
         None,
     )
@@ -232,9 +235,13 @@ def _section_lines(content: str, title: str) -> list[str]:
 
 def _split_amount(value: str) -> tuple[str, str]:
     value = _clean_markdown(value)
+    value = re.sub(r"\s+-\s+.*$", "", value).strip()
     if "=" in value:
         name, amount = value.split("=", 1)
         return name.strip(), amount.strip()
+    parenthesized = re.match(r"^(.*?)[(\uff08]([^()\uff08\uff09]+)[)\uff09]$", value)
+    if parenthesized and parenthesized.group(1).strip():
+        return parenthesized.group(1).strip(), parenthesized.group(2).strip()
     match = re.match(
         r"^(.*?)[：:\s]+((?:约|大约|适量|少许)?\s*\d+(?:\.\d+)?(?:\s*[-~至]\s*\d+(?:\.\d+)?)?\s*"
         r"(?:克|g|千克|kg|毫升|ml|升|L|个|只|根|片|勺|汤匙|茶匙|碗|杯|份|斤|两|颗|瓣|包|块|枚|滴|撮|把|张|条|罐|盒|瓶)?|适量|少许)$",
@@ -247,7 +254,7 @@ def _split_amount(value: str) -> tuple[str, str]:
 
 
 def _parse_ingredient_groups(content: str) -> list[dict]:
-    lines = _section_lines(content, "计算")
+    lines = _section_lines(content, "食材")
     if not lines:
         lines = _section_lines(content, "必备原料和工具")
     groups: list[dict] = []
@@ -256,8 +263,8 @@ def _parse_ingredient_groups(content: str) -> list[dict]:
     for index, raw in enumerate(lines):
         line = raw.strip()
         heading = re.match(r"^###\s+(.+)$", line)
-        bullet = re.match(r"^\s*[-*+]\s+(.+)$", raw)
-        nested = re.match(r"^\s{2,}[-*+]\s+(.+)$", raw)
+        bullet = re.match(r"^\s*(?:[-*+]|\d+[.)\u3001])\s+(.+)$", raw)
+        nested = re.match(r"^\s{2,}(?:[-*+]|\d+[.)\u3001])\s+(.+)$", raw)
         if heading:
             if current["items"]:
                 groups.append(current)
@@ -286,6 +293,19 @@ def _parse_ingredient_groups(content: str) -> list[dict]:
     return groups
 
 
+def _clean_step_text(text: str) -> str:
+    """Keep the actual action while dropping graph-node metadata from recipe steps."""
+    text = _clean_markdown(text)
+    description = re.search(
+        r"\u63cf\u8ff0\s*[:\uff1a]\s*(.*?)(?=\s*(?:\u65b9\u6cd5|\u5de5\u5177|\u65f6\u95f4)\s*[:\uff1a]|$)",
+        text,
+    )
+    if description:
+        return description.group(1).strip()
+    text = re.sub(r"^(?:\u6b65\u9aa4\s*[:\uff1a]\s*)?(?:\u6b65\u9aa4)?\d+\s*", "", text)
+    return re.sub(r"\s*(?:\u65b9\u6cd5|\u5de5\u5177|\u65f6\u95f4)\s*[:\uff1a].*$", "", text).strip()
+
+
 def _parse_step_groups(content: str) -> list[dict]:
     lines = _section_lines(content, "操作")
     groups: list[dict] = []
@@ -294,7 +314,7 @@ def _parse_step_groups(content: str) -> list[dict]:
 
     def flush_paragraph():
         if paragraph_buffer:
-            text = _clean_markdown(" ".join(paragraph_buffer))
+            text = _clean_step_text(" ".join(paragraph_buffer))
             if text:
                 current["steps"].append(text)
             paragraph_buffer.clear()
@@ -313,7 +333,7 @@ def _parse_step_groups(content: str) -> list[dict]:
             current = {"name": _clean_markdown(heading.group(1)), "steps": []}
         elif step:
             flush_paragraph()
-            text = _clean_markdown(step.group(1))
+            text = _clean_step_text(step.group(1))
             if text:
                 current["steps"].append(text)
         elif not line.startswith("#"):
@@ -403,7 +423,7 @@ def _recipe_summary(doc) -> dict[str, str]:
 def _prepare_answer(system: RecipeRAGSystem, question: str):
     parsed = _parse_user_query(system, question)
     if parsed["intent"] == "chat":
-        return [], system.generation_module.generate_assistant_answer_stream(question)
+        return [], system.generation_module.generate_adaptive_answer_stream(question, [])
 
     if parsed["intent"] == "recipe_lookup":
         docs, _ = _lookup_recipe_documents(system, parsed, limit=3)
@@ -411,25 +431,25 @@ def _prepare_answer(system: RecipeRAGSystem, question: str):
             prefix = iter(["数据库中暂时没有找到完全匹配的菜品。\n\n大模型补充建议："])
             return [], chain(
                 prefix,
-                system.generation_module.generate_assistant_answer_stream(question),
+                system.generation_module.generate_adaptive_answer_stream(question, []),
             )
-        return docs, system.generation_module.generate_step_by_step_answer_stream(question, docs)
+        return docs, system.generation_module.generate_adaptive_answer_stream(question, docs)
 
     # 开放式需求先从 RAG 召回，再让大模型基于召回内容回答。
     # 不将召回文档作为 SSE sources 返回，前端因此不会展示菜品卡片。
     docs = _recommendation_documents(system, parsed, limit=max(system.config.top_k, 8))
     if not docs:
-        return [], system.generation_module.generate_assistant_answer_stream(question)
-    return [], system.generation_module.generate_basic_answer_stream(question, docs)
+        return [], system.generation_module.generate_adaptive_answer_stream(question, [])
+    return [], system.generation_module.generate_adaptive_answer_stream(question, docs)
 
 
 def _prepare_ingredients(system: RecipeRAGSystem, dish_name: str):
-    chunks = system.retrieval_module.hybrid_search(dish_name, top_k=3)
+    chunks = system.retrieve(dish_name, top_k=3)
     docs = system.data_module.get_parent_documents(chunks)
     if not docs:
         return [], iter(["抱歉，没有找到这道菜的食材信息。"])
     question = f"{dish_name}需要什么食材？"
-    return docs, system.generation_module.generate_basic_answer_stream(question, docs)
+    return docs, system.generation_module.generate_adaptive_answer_stream(question, docs)
 
 
 def _sse(event: str, data) -> str:
@@ -635,8 +655,8 @@ def chat_stream(payload: ChatRequest, request: Request):
 @app.post("/api/assistant/stream")
 @limiter.limit("10/minute")
 def assistant_stream(payload: ChatRequest, request: Request):
-    chunks = request.app.state.rag.generation_module.generate_assistant_answer_stream(
-        payload.question.strip()
+    chunks = request.app.state.rag.generation_module.generate_adaptive_answer_stream(
+        payload.question.strip(), []
     )
     return StreamingResponse(
         _event_stream([], chunks),

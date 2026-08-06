@@ -41,8 +41,8 @@ services:
   milvus-minio:
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     environment:
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY in Rag/.env}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY in Rag/.env}
+      MINIO_ACCESSKEYID: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY in Rag/.env}
+      MINIO_SECRETACCESSKEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY in Rag/.env}
     command: minio server /minio_data
     volumes: [minio_data:/minio_data]
 
@@ -52,6 +52,8 @@ services:
     environment:
       ETCD_ENDPOINTS: milvus-etcd:2379
       MINIO_ADDRESS: milvus-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY in Rag/.env}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY in Rag/.env}
     volumes: [milvus_data:/var/lib/milvus]
     depends_on: [milvus-etcd, milvus-minio]
 

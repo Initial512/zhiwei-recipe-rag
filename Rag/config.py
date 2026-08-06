@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,7 @@ class RAGConfig:
     milvus_port: int = int(os.getenv("MILVUS_PORT", "19530"))
     milvus_collection_name: str = os.getenv("MILVUS_COLLECTION", "cooking_knowledge")
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
+    llm_model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", ""))
     top_k: int = int(os.getenv("RAG_TOP_K", "5"))
     temperature: float = 0.1
     max_tokens: int = 2048
