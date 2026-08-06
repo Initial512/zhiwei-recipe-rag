@@ -379,6 +379,17 @@ h1 { margin: 0; font-family: "Noto Serif SC", "Songti SC", serif; font-size: cla
 .ai-answer-body-heading > span i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: blink 1s infinite; }
 .ai-answer-text { min-height: 190px; margin-top: 22px; color: #50372b; font-size: 15px; line-height: 2.05; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ai-answer-text.is-streaming::after { content: ""; display: inline-block; width: 7px; height: 17px; margin-left: 4px; background: var(--accent); vertical-align: text-bottom; animation: blink .8s steps(1) infinite; }
+.formatted-answer { color: inherit; font-size: inherit; line-height: inherit; white-space: normal; overflow-wrap: anywhere; }
+.formatted-answer > :first-child { margin-top: 0; }
+.formatted-answer > :last-child { margin-bottom: 0; }
+.formatted-answer h3 { margin: 28px 0 11px; color: var(--ink); font-family: "Noto Serif SC", serif; font-size: 18px; line-height: 1.55; }
+.formatted-answer p { margin: 0 0 14px; }
+.formatted-answer strong { color: #6e3825; font-weight: 700; }
+.formatted-answer ol, .formatted-answer ul { display: grid; gap: 9px; margin: 12px 0 20px; padding: 0; list-style: none; }
+.formatted-answer li { display: grid; grid-template-columns: 25px minmax(0, 1fr); align-items: start; gap: 10px; }
+.formatted-answer li > span { display: grid; place-items: center; width: 23px; height: 23px; border: 1px solid rgba(238, 90, 45, .78); border-radius: 50%; color: #df5630; font-size: 12px; line-height: 1; }
+.formatted-answer li > i { width: 7px; height: 7px; margin: 11px 8px 0; border-radius: 50%; background: #ed6b3c; }
+.formatted-answer li p { margin: 0; }
 .answer-page-recipe-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 22px; }
 .answer-page-stop { display: flex; align-items: center; gap: 7px; margin-top: 22px; border: 1px solid var(--line); border-radius: 999px; padding: 8px 15px; background: transparent; color: var(--muted); cursor: pointer; }
 .answer-page-sources { margin-top: 18px; border: 1px solid rgba(220,133,72,.2); border-radius: 22px; padding: 20px 24px; background: #feecd7; }
@@ -408,6 +419,9 @@ h1 { margin: 0; font-family: "Noto Serif SC", "Songti SC", serif; font-size: cla
 .answer-content-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 17px; color: var(--ink); font-family: "Noto Serif SC", serif; font-size: 20px; line-height: 1.4; }
 .answer-content-heading svg { color: var(--accent); }
 .answer-content-copy { white-space: pre-wrap; }
+.answer-content-copy .formatted-answer { white-space: normal; }
+.detail-answer-overlay .formatted-answer h3 { margin-top: 23px; font-size: 17px; }
+.detail-answer-overlay .formatted-answer ol, .detail-answer-overlay .formatted-answer ul { gap: 11px; }
 .answer-waiting { color: var(--muted); }
 .answer-error { display: flex; align-items: center; justify-content: space-between; gap: 15px; border-radius: 11px; padding: 14px 16px; background: rgba(200, 79, 46, .09); color: var(--accent-dark); font-size: 13px; }
 .answer-error button { border: 0; border-bottom: 1px solid currentColor; padding: 2px 0; background: transparent; color: inherit; cursor: pointer; }

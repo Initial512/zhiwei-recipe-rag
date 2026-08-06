@@ -12,6 +12,7 @@ import {
   UsersThree,
   X,
 } from "@phosphor-icons/react";
+import { formatAnswer, formatInlineText } from "./answerFormatting.js";
 import roomImage from "./assets/warm-interior.png";
 import aromaImage from "./assets/aroma-chopsticks-transparent.png";
 
@@ -89,6 +90,37 @@ function RecipeCard({ recipe, onOpen, className = "" }) {
         <i>查看完整菜谱 <ArrowRight size={15} /></i>
       </span>
     </button>
+  );
+}
+
+function InlineFormattedText({ text }) {
+  return formatInlineText(text).map((part, index) => (
+    part.bold
+      ? <strong key={`${index}-${part.text}`}>{part.text}</strong>
+      : <span key={`${index}-${part.text}`}>{part.text}</span>
+  ));
+}
+
+function FormattedAnswer({ content }) {
+  return (
+    <div className="formatted-answer">
+      {formatAnswer(content).map((block, index) => {
+        if (block.type === "heading") {
+          return <h3 key={`${index}-${block.text}`}><InlineFormattedText text={block.text} /></h3>;
+        }
+        if (block.type === "ordered") {
+          return <ol key={`${index}-${block.items.join("-")}`}>{block.items.map((item, itemIndex) => (
+            <li key={`${itemIndex}-${item}`}><span>{itemIndex + 1}</span><p><InlineFormattedText text={item} /></p></li>
+          ))}</ol>;
+        }
+        if (block.type === "unordered") {
+          return <ul key={`${index}-${block.items.join("-")}`}>{block.items.map((item, itemIndex) => (
+            <li key={`${itemIndex}-${item}`}><i /><p><InlineFormattedText text={item} /></p></li>
+          ))}</ul>;
+        }
+        return <p key={`${index}-${block.text}`}><InlineFormattedText text={block.text} /></p>;
+      })}
+    </div>
   );
 }
 
@@ -718,7 +750,7 @@ export function App() {
                 </>
               ) : (
                 <div className={`ai-answer-text ${streaming ? "is-streaming" : ""}`}>
-                  {answer || (!error && <span className="answer-waiting">正在理解你的问题…</span>)}
+                  {answer ? <FormattedAnswer content={answer} /> : (!error && <span className="answer-waiting">正在理解你的问题…</span>)}
                 </div>
               )}
               {error && (
@@ -901,7 +933,7 @@ export function App() {
               <div className={`answer-content ${streaming ? "is-streaming" : ""}`}>
                 <strong className="answer-content-heading"><Sparkle size={19} />知味回答</strong>
                 <div className="answer-content-copy">
-                  {answer || (!error && <span className="answer-waiting">正在检索相关菜谱…</span>)}
+                  {answer ? <FormattedAnswer content={answer} /> : (!error && <span className="answer-waiting">正在检索相关菜谱…</span>)}
                 </div>
               </div>
               {error && (

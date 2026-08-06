@@ -11,6 +11,7 @@ import re
 import uuid
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from itertools import chain
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -37,6 +38,7 @@ limiter = Limiter(key_func=get_remote_address)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RECIPE_IMAGE_DIR = PROJECT_ROOT / "data" / "图片"
 mimetypes.add_type("image/webp", ".webp")
+DISHES_DIR = PROJECT_ROOT / "data" / "dishes"
 EXCLUDED_DISH_NAMES = {"示例菜"}
 
 
@@ -233,6 +235,64 @@ def _section_lines(content: str, title: str) -> list[str]:
     return lines[start:end]
 
 
+def _fallback_tips(category: str) -> list[str]:
+    tips_by_category = {
+        "\u6c64\u54c1": ["\u51fa\u9505\u524d\u5148\u8bd5\u5473\uff0c\u518d\u6839\u636e\u54b8\u6de1\u8c03\u6574\u8c03\u5473\u3002"],
+        "\u6c34\u4ea7": ["\u6d77\u9c9c\u8bf7\u5145\u5206\u52a0\u70ed\u81f3\u719f\uff0c\u8d77\u9505\u540e\u5c3d\u5feb\u98df\u7528\u3002"],
+        "\u8089\u83dc": ["\u8089\u7c7b\u52a0\u70ed\u81f3\u719f\u900f\u540e\u518d\u88c5\u76d8\uff0c\u53ef\u4ee5\u66f4\u5b89\u5fc3\u5730\u4eab\u7528\u3002"],
+        "\u7d20\u83dc": ["\u852c\u83dc\u5efa\u8bae\u5927\u706b\u5feb\u7092\uff0c\u4e34\u51fa\u9505\u518d\u8c03\u5473\u3002"],
+        "\u751c\u70b9": ["\u6210\u54c1\u51b7\u5374\u81f3\u5b9a\u578b\u540e\u518d\u98df\u7528\uff0c\u53e3\u611f\u66f4\u4f73\u3002"],
+    }
+    return tips_by_category.get(category, ["\u53ef\u4ee5\u6839\u636e\u4e2a\u4eba\u53e3\u5473\u9002\u91cf\u8c03\u6574\u8c03\u5473\u3002"])
+
+
+def _clean_tip_line(line: str) -> str:
+    """Discard Markdown source credits and retain only cooking guidance."""
+    raw = line.strip()
+    if re.search(r"https?://|www\.|b23\.tv|bilibili|youtube|douyin|xiaohongshu|xiachufang|weixin", raw, re.IGNORECASE):
+        return ""
+    value = _clean_markdown(raw)
+    source_prefix = (
+        r"^(?:\u53c2\u8003(?:\u8d44\u6599|\u94fe\u63a5|\u6765\u6e90)?|\u6765\u6e90|\u4f5c\u8005|\u539f\u6587|"
+        r"\u89c6\u9891(?:\u6f14\u793a)?|\u6559\u5b66\u89c6\u9891|\u505a\u6cd5\u53c2\u8003|\u76f8\u5173\u94fe\u63a5|\u51fa\u5904|\u516c\u4f17\u53f7)"
+    )
+    if re.match(source_prefix, value, re.IGNORECASE):
+        return ""
+    if any(marker in value.lower() for marker in ("\u6559\u7a0b", "\u83dc\u8c31\u6765\u6e90", "\u5c0f\u7ea2\u4e66", "\u4e0b\u53a8\u623f", "\u54d4\u54e9\u54d4\u54e9", "b\u7ad9")):
+        return ""
+    value = re.sub(r"\s*(?:[-—|｜]\s*)?(?:\u6765\u6e90|\u4f5c\u8005|\u539f\u6587|\u89c6\u9891|\u516c\u4f17\u53f7)\s*[:\uff1a].*$", "", value)
+    if re.fullmatch(r".{1,16}(?:\u7684)?(?:\u83dc\u8c31|\u98df\u8c31)", value):
+        return ""
+    return value.strip()
+
+
+@lru_cache(maxsize=512)
+def _markdown_tips(dish_name: str, category: str = "") -> list[str]:
+    """Read optional tips from the original recipe Markdown file."""
+    if not dish_name or not DISHES_DIR.is_dir():
+        return _fallback_tips(category)
+
+    recipe_file = next(DISHES_DIR.rglob(f"{dish_name}.md"), None)
+    if recipe_file is None:
+        return _fallback_tips(category)
+    try:
+        content = recipe_file.read_text(encoding="utf-8")
+    except OSError:
+        logger.warning("Unable to read recipe Markdown for tips: %s", recipe_file)
+        return _fallback_tips(category)
+
+    tips = []
+    for raw in _section_lines(content, "\u9644\u52a0\u5185\u5bb9"):
+        line = raw.strip()
+        if not line or line.startswith(("#", "![")):
+            continue
+        line = re.sub(r"^(?:[-*+]|\d+[.)\u3001])\s+", "", line)
+        value = _clean_tip_line(line)
+        if value:
+            tips.append(value)
+    return tips or _fallback_tips(category)
+
+
 def _split_amount(value: str) -> tuple[str, str]:
     value = _clean_markdown(value)
     value = re.sub(r"\s+-\s+.*$", "", value).strip()
@@ -328,9 +388,12 @@ def _parse_step_groups(content: str) -> list[dict]:
         step = re.match(r"^(?:[-*+]|\d+[.)、])\s+(.+)$", line)
         if heading:
             flush_paragraph()
+            heading_name = _clean_markdown(heading.group(1))
+            if re.fullmatch(r"\u7b2c\s*\d+\s*\u6b65(?:\s*[:\uff1a].*)?", heading_name):
+                continue
             if current["steps"]:
                 groups.append(current)
-            current = {"name": _clean_markdown(heading.group(1)), "steps": []}
+            current = {"name": heading_name, "steps": []}
         elif step:
             flush_paragraph()
             text = _clean_step_text(step.group(1))
@@ -370,6 +433,8 @@ def _parse_recipe_doc(doc) -> dict:
         for line in _section_lines(content, "附加内容")
         if line.strip() and not line.strip().startswith(("#", "!["))
     ]
+    if not tips:
+        tips = _markdown_tips(str(source["dish_name"]), str(source["category"]))
     plain = _clean_markdown(content)
     time_match = re.search(
         r"(?:烹饪|制作|耗时|用时|需时)[^\d]{0,8}(\d+(?:\s*[-~至]\s*\d+)?)\s*(分钟|小时)", plain

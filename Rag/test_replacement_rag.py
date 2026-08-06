@@ -102,3 +102,33 @@ def test_graph_recipe_detail_parser_keeps_ingredients_and_action_only():
     assert _parse_step_groups(content) == [
         {"name": "\u5236\u4f5c\u6b65\u9aa4", "steps": ["\u767d\u8611\u83c7\u5207\u7247\u5907\u7528\uff0c\u6d0b\u8471\u5207\u672b\u5907\u7528\u3002"]}
     ]
+
+
+def test_recipe_detail_reads_tips_from_original_markdown():
+    assert len(api_module._markdown_tips("\u91d1\u9488\u83c7\u6c64")) >= 2
+
+
+def test_recipe_tips_remove_source_credits_and_supply_a_fallback():
+    tips = api_module._markdown_tips("\u9ec4\u6cb9\u714e\u867e", "\u6c34\u4ea7")
+    assert len(tips) == 1
+    assert "\u5c0f\u5fc3\u7528\u5200" in tips[0]
+    assert "\u83dc\u8c31" not in tips[0]
+    assert api_module._fallback_tips("\u6c64\u54c1")
+
+
+def test_recipe_tips_remove_reference_materials():
+    assert api_module._clean_tip_line("\u53c2\u8003\u8d44\u6599\uff1a\u738b\u521a\u7684\u6559\u5b66\u89c6\u9891") == ""
+    assert api_module._clean_tip_line("\u505a\u6cd5\u53c2\u8003\uff1aB\u7ad9\u89c6\u9891") == ""
+    assert api_module._clean_tip_line("\u706b\u5019\u4e0d\u5b9c\u8fc7\u5927\uff0c\u907f\u514d\u7cca\u5e95\u3002")
+
+
+def test_graph_step_headings_are_flattened_for_continuous_numbering():
+    content = """## \u5236\u4f5c\u6b65\u9aa4
+### \u7b2c1\u6b65
+\u6b65\u9aa4: \u6b65\u9aa41 \u63cf\u8ff0: \u7b2c\u4e00\u6b65\u3002 \u65b9\u6cd5: \u5207
+### \u7b2c2\u6b65
+\u6b65\u9aa4: \u6b65\u9aa42 \u63cf\u8ff0: \u7b2c\u4e8c\u6b65\u3002 \u65b9\u6cd5: \u7092
+"""
+    assert _parse_step_groups(content) == [
+        {"name": "\u5236\u4f5c\u6b65\u9aa4", "steps": ["\u7b2c\u4e00\u6b65\u3002", "\u7b2c\u4e8c\u6b65\u3002"]}
+    ]
