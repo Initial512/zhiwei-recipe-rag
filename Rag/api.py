@@ -569,10 +569,7 @@ class RecipeCatalog:
 
 def _prepare_answer(system: RecipeRAGSystem, question: str):
     parsed = _parse_user_query(system, question)
-    if parsed["intent"] == "chat":
-        return [], system.generation_module.generate_adaptive_answer_stream(question, [])
-
-    if parsed["intent"] == "recipe_lookup":
+    if parsed["intent"] == "recipe_lookup" and parsed.get("dish_name"):
         docs, _ = _lookup_recipe_documents(system, parsed, limit=3)
         if not docs:
             prefix = iter(["数据库中暂时没有找到完全匹配的菜品。\n\n大模型补充建议："])
@@ -582,9 +579,15 @@ def _prepare_answer(system: RecipeRAGSystem, question: str):
             )
         return docs, system.generation_module.generate_adaptive_answer_stream(question, docs)
 
-    # 开放式需求先从 RAG 召回，再让大模型基于召回内容回答。
-    # 不将召回文档作为 SSE sources 返回，前端因此不会展示菜品卡片。
-    docs = _recommendation_documents(system, parsed, limit=max(system.config.top_k, 8))
+    # 除明确菜名查询外，统一通过查询路由。这样关系推理问题可进入
+    # GraphRAG 的自适应查询规划，GraphRAG 失效时仍由路由降级到混合检索。
+    try:
+        docs = system.retrieve(question, top_k=max(system.config.top_k, 8))
+    except Exception:
+        logger.exception("网页问答的查询路由失败")
+        docs = []
+
+    # 开放式问题不展示来源卡片，避免把图节点或推荐候选误呈现为精确菜谱来源。
     if not docs:
         return [], system.generation_module.generate_adaptive_answer_stream(question, [])
     return [], system.generation_module.generate_adaptive_answer_stream(question, docs)

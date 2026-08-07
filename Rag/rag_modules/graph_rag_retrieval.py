@@ -3,9 +3,10 @@
 基于图结构的知识推理和检索，而非简单的关键词匹配
 """
 
+import hashlib
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
 
@@ -13,6 +14,7 @@ from langchain_core.documents import Document
 from neo4j import GraphDatabase
 
 logger = logging.getLogger(__name__)
+GRAPH_INTENT_TIMEOUT_SECONDS = 15
 
 
 class QueryType(Enum):
@@ -191,6 +193,7 @@ class GraphRAGRetrieval:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=1000,
+                timeout=GRAPH_INTENT_TIMEOUT_SECONDS,
             )
 
             result = json.loads(response.choices[0].message.content.strip())
@@ -207,7 +210,7 @@ class GraphRAGRetrieval:
         except Exception as e:
             logger.error(f"查询意图理解失败: {e}")
             # 降级方案：默认子图查询
-            return GraphQuery(query_type=QueryType.SUBGRAPH, source_entities=[query], max_depth=2)
+            return GraphQuery(query_type=QueryType.SUBGRAPH, source_entities=[], max_depth=2)
 
     def multi_hop_traversal(self, graph_query: GraphQuery) -> list[GraphPath]:
         """
@@ -240,7 +243,14 @@ class GraphRAGRetrieval:
                     // 执行多跳遍历
                     MATCH path = (source)-[*1..{max_depth}]-(target)
                     WHERE NOT source = target
-                    {"AND ANY(label IN labels(target) WHERE label IN $target_labels)" if target_entities else ""}
+                    AND (
+                        size($target_entities) = 0
+                        OR ANY(target_name IN $target_entities WHERE
+                            target.name CONTAINS target_name
+                            OR target_name CONTAINS target.name
+                            OR coalesce(target.category, '') CONTAINS target_name
+                        )
+                    )
                     
                     // 计算路径相关性
                     WITH path, source, target,
@@ -264,7 +274,7 @@ class GraphRAGRetrieval:
                         cypher_query,
                         {
                             "source_entities": source_entities,
-                            "target_labels": target_entities,
+                            "target_entities": target_entities,
                             "relation_types": graph_query.relation_types or [],
                         },
                     )
@@ -376,90 +386,136 @@ class GraphRAGRetrieval:
             logger.error(f"图结构推理失败: {e}")
             return []
 
-    def adaptive_query_planning(self, query: str) -> list[GraphQuery]:
+    def adaptive_query_planning(
+        self, query: str, base_query: GraphQuery | None = None
+    ) -> list[GraphQuery]:
         """
         自适应查询规划：根据查询复杂度动态调整策略
         """
+        # Reuse the LLM-extracted entities whenever they are available. The old
+        # implementation used the entire sentence as an entity, which cannot
+        # match the graph's node names.
+        base_query = base_query or GraphQuery(
+            query_type=QueryType.SUBGRAPH, source_entities=[], max_depth=2
+        )
+        if not base_query.source_entities:
+            return [replace(base_query, query_type=QueryType.SUBGRAPH, max_depth=2, max_nodes=50)]
+
         # 分析查询复杂度
         complexity_score = self._analyze_query_complexity(query)
 
-        query_plans = []
-
         if complexity_score < 0.3:
-            # 简单查询：直接邻居查询
-            plan = GraphQuery(
-                query_type=QueryType.ENTITY_RELATION,
-                source_entities=[query],
-                max_depth=1,
-                max_nodes=20,
-            )
-            query_plans.append(plan)
+            return [
+                replace(
+                    base_query,
+                    query_type=QueryType.ENTITY_RELATION,
+                    max_depth=1,
+                    max_nodes=20,
+                )
+            ]
 
-        elif complexity_score < 0.7:
-            # 中等复杂度：多跳查询
-            plan = GraphQuery(
-                query_type=QueryType.MULTI_HOP, source_entities=[query], max_depth=2, max_nodes=50
-            )
-            query_plans.append(plan)
+        if complexity_score < 0.7:
+            return [
+                replace(
+                    base_query,
+                    query_type=QueryType.MULTI_HOP,
+                    max_depth=max(2, min(base_query.max_depth, 3)),
+                    max_nodes=50,
+                )
+            ]
 
-        else:
-            # 复杂查询：子图提取 + 推理
-            plan1 = GraphQuery(
-                query_type=QueryType.SUBGRAPH, source_entities=[query], max_depth=3, max_nodes=100
-            )
-            plan2 = GraphQuery(
-                query_type=QueryType.MULTI_HOP, source_entities=[query], max_depth=3, max_nodes=50
-            )
-            query_plans.extend([plan1, plan2])
-
-        return query_plans
+        return [
+            replace(
+                base_query,
+                query_type=QueryType.SUBGRAPH,
+                max_depth=3,
+                max_nodes=100,
+            ),
+            replace(
+                base_query,
+                query_type=QueryType.MULTI_HOP,
+                max_depth=3,
+                max_nodes=50,
+            ),
+        ]
 
     def graph_rag_search(self, query: str, top_k: int = 5) -> list[Document]:
         """
         图RAG主搜索接口：整合所有图RAG能力
         """
-        logger.info(f"开始图RAG检索: {query}")
+        logger.info("Starting GraphRAG retrieval")
 
         if not self.driver:
             logger.warning("Neo4j连接未建立，返回空结果")
             return []
 
-        # 1. 查询意图理解
-        graph_query = self.understand_graph_query(query)
-        logger.info(f"查询类型: {graph_query.query_type.value}")
-
+        # The LLM is invoked once to identify graph entities. Planning then
+        # creates one or more bounded execution strategies from that result.
+        base_query = self.understand_graph_query(query)
+        plans = self.adaptive_query_planning(query, base_query)
+        logger.warning(
+            "GraphRAG adaptive plans count=%s types=%s",
+            len(plans),
+            [plan.query_type.value for plan in plans],
+        )
         results = []
 
-        try:
-            # 2. 根据查询类型执行不同策略
-            if graph_query.query_type in [QueryType.MULTI_HOP, QueryType.PATH_FINDING]:
-                # 多跳遍历
-                paths = self.multi_hop_traversal(graph_query)
-                results.extend(self._paths_to_documents(paths, query))
+        for index, plan in enumerate(plans):
+            try:
+                plan_documents = self._execute_graph_query(plan, query)
+            except Exception:
+                logger.exception("GraphRAG plan %s failed", index)
+                continue
 
-            elif graph_query.query_type == QueryType.SUBGRAPH:
-                # 子图提取
-                subgraph = self.extract_knowledge_subgraph(graph_query)
+            for document in plan_documents:
+                document.metadata.update(
+                    {
+                        "graph_plan_type": plan.query_type.value,
+                        "graph_plan_index": index,
+                        "graph_plan_depth": plan.max_depth,
+                    }
+                )
+            results.extend(plan_documents)
 
-                # 图结构推理
-                reasoning_chains = self.graph_structure_reasoning(subgraph, query)
+        results = self._merge_plan_documents(results, query)
+        logger.info("GraphRAG completed plans=%s documents=%s", len(plans), len(results))
+        return results[:top_k]
 
-                results.extend(self._subgraph_to_documents(subgraph, reasoning_chains, query))
-
-            elif graph_query.query_type == QueryType.ENTITY_RELATION:
-                # 实体关系查询
-                paths = self.multi_hop_traversal(graph_query)
-                results.extend(self._paths_to_documents(paths, query))
-
-            # 3. 图结构相关性排序
-            results = self._rank_by_graph_relevance(results, query)
-
-            logger.info(f"图RAG检索完成，返回 {len(results[:top_k])} 个结果")
-            return results[:top_k]
-
-        except Exception as e:
-            logger.error(f"图RAG检索失败: {e}")
+    def _execute_graph_query(self, graph_query: GraphQuery, query: str) -> list[Document]:
+        """Execute one planned graph query without affecting other plans."""
+        if not graph_query.source_entities:
             return []
+
+        if graph_query.query_type == QueryType.CLUSTERING:
+            graph_query = replace(graph_query, query_type=QueryType.SUBGRAPH, max_depth=2)
+
+        if graph_query.query_type in {
+            QueryType.ENTITY_RELATION,
+            QueryType.MULTI_HOP,
+            QueryType.PATH_FINDING,
+        }:
+            return self._paths_to_documents(self.multi_hop_traversal(graph_query), query)
+
+        if graph_query.query_type == QueryType.SUBGRAPH:
+            subgraph = self.extract_knowledge_subgraph(graph_query)
+            reasoning_chains = self.graph_structure_reasoning(subgraph, query)
+            return self._subgraph_to_documents(subgraph, reasoning_chains, query)
+
+        return []
+
+    def _merge_plan_documents(self, documents: list[Document], query: str) -> list[Document]:
+        """Deduplicate planned graph results and keep the highest-scoring document."""
+        unique_documents: dict[str, Document] = {}
+        for document in documents:
+            identity = str(document.metadata.get("node_id") or "")
+            if not identity:
+                identity = hashlib.sha256(document.page_content.encode("utf-8")).hexdigest()
+            previous = unique_documents.get(identity)
+            if previous is None or document.metadata.get(
+                "relevance_score", 0.0
+            ) > previous.metadata.get("relevance_score", 0.0):
+                unique_documents[identity] = document
+        return self._rank_by_graph_relevance(list(unique_documents.values()), query)
 
     # ========== 辅助方法 ==========
 
@@ -534,6 +590,7 @@ class GraphRAGRetrieval:
                     "path_type": path.path_type,
                     "node_count": len(path.nodes),
                     "relationship_count": len(path.relationships),
+                    "node_id": path.nodes[0].get("id", "") if path.nodes else "",
                     "recipe_name": path.nodes[0].get("name", "图结构结果")
                     if path.nodes
                     else "图结构结果",
@@ -614,12 +671,71 @@ class GraphRAGRetrieval:
         return chains[:3]
 
     def _find_entity_relations(self, graph_query: GraphQuery, session) -> list[GraphPath]:
-        """查找实体间关系"""
-        return []
+        """Find direct relationships, optionally constrained by target entities."""
+        cypher_query = """
+        UNWIND $source_entities AS source_name
+        MATCH (source)
+        WHERE source.name CONTAINS source_name OR source.nodeId = source_name
+        MATCH (source)-[relationship]-(target)
+        WHERE size($target_entities) = 0
+           OR ANY(target_name IN $target_entities WHERE
+                target.name CONTAINS target_name
+                OR target_name CONTAINS target.name
+                OR coalesce(target.category, '') CONTAINS target_name
+           )
+        WITH source, target, relationship,
+             CASE WHEN type(relationship) IN $relation_types THEN 1.3 ELSE 1.0 END AS relevance
+        RETURN [source, target] AS path_nodes,
+               [relationship] AS rels,
+               1 AS path_len,
+               relevance
+        ORDER BY relevance DESC
+        LIMIT $limit
+        """
+        records = session.run(
+            cypher_query,
+            {
+                "source_entities": graph_query.source_entities,
+                "target_entities": graph_query.target_entities or [],
+                "relation_types": graph_query.relation_types or [],
+                "limit": graph_query.max_nodes,
+            },
+        )
+        return [path for record in records if (path := self._parse_neo4j_path(record)) is not None]
 
     def _find_shortest_paths(self, graph_query: GraphQuery, session) -> list[GraphPath]:
-        """查找最短路径"""
-        return []
+        """Find bounded shortest paths between parsed source and target entities."""
+        if not graph_query.target_entities:
+            return self.multi_hop_traversal(
+                replace(
+                    graph_query,
+                    query_type=QueryType.MULTI_HOP,
+                    max_depth=max(2, graph_query.max_depth),
+                )
+            )
+
+        cypher_query = f"""
+        UNWIND $source_entities AS source_name
+        UNWIND $target_entities AS target_name
+        MATCH (source), (target)
+        WHERE (source.name CONTAINS source_name OR source.nodeId = source_name)
+          AND (target.name CONTAINS target_name OR target.nodeId = target_name)
+          AND source <> target
+        MATCH path = shortestPath((source)-[*1..{graph_query.max_depth}]-(target))
+        WITH path, source, target, relationships(path) AS rels, nodes(path) AS path_nodes
+        RETURN path_nodes, rels, length(path) AS path_len, 1.0 / length(path) AS relevance
+        ORDER BY relevance DESC
+        LIMIT $limit
+        """
+        records = session.run(
+            cypher_query,
+            {
+                "source_entities": graph_query.source_entities,
+                "target_entities": graph_query.target_entities,
+                "limit": graph_query.max_nodes,
+            },
+        )
+        return [path for record in records if (path := self._parse_neo4j_path(record)) is not None]
 
     def _fallback_subgraph_extraction(self, graph_query: GraphQuery) -> KnowledgeSubgraph:
         """降级子图提取"""

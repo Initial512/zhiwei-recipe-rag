@@ -1,9 +1,16 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import api as api_module
-from api import RECIPE_IMAGE_DIR, RecipeCatalog, _parse_ingredient_groups, _parse_step_groups, _sse
+from api import (
+    RECIPE_IMAGE_DIR,
+    RecipeCatalog,
+    _parse_ingredient_groups,
+    _parse_step_groups,
+    _prepare_answer,
+    _sse,
+)
 from config import RAGConfig
 from main import RecipeRAGSystem, _difficulty
 from rag_modules.milvus_index_construction import MilvusIndexConstructionModule
@@ -133,3 +140,85 @@ def test_graph_recipe_detail_parser_keeps_ingredients_and_action_only():
     assert _parse_step_groups(content)[0]["steps"] == [
         "\u767d\u8611\u83c7\u5207\u7247\u5907\u7528\uff0c\u6d0b\u8471\u5207\u672b\u5907\u7528\u3002"
     ]
+
+
+def _answer_system(retrieved_documents=None, retrieve_error=None):
+    generated_with = []
+
+    def generate(question, documents):
+        generated_with.append((question, documents))
+        return iter(["answer"])
+
+    def retrieve(_question, **kwargs):
+        assert kwargs["top_k"] == 8
+        if retrieve_error:
+            raise retrieve_error
+        return retrieved_documents or []
+
+    return (
+        SimpleNamespace(
+            config=SimpleNamespace(top_k=5),
+            retrieve=Mock(side_effect=retrieve),
+            generation_module=SimpleNamespace(generate_adaptive_answer_stream=generate),
+        ),
+        generated_with,
+    )
+
+
+def test_prepare_answer_keeps_known_recipe_lookup_on_fast_path(monkeypatch):
+    recipe_document = SimpleNamespace(metadata={"dish_name": "宫保鸡丁"})
+    system, generated_with = _answer_system([SimpleNamespace()])
+    lookup = Mock(return_value=([recipe_document], True))
+    monkeypatch.setattr(
+        api_module,
+        "_parse_user_query",
+        lambda *_: {"intent": "recipe_lookup", "dish_name": "宫保鸡丁"},
+    )
+    monkeypatch.setattr(api_module, "_lookup_recipe_documents", lookup)
+
+    docs, chunks = _prepare_answer(system, "宫保鸡丁怎么做")
+
+    assert docs == [recipe_document]
+    assert list(chunks) == ["answer"]
+    assert generated_with == [("宫保鸡丁怎么做", [recipe_document])]
+    lookup.assert_called_once()
+    system.retrieve.assert_not_called()
+
+
+def test_prepare_answer_routes_all_non_recipe_queries(monkeypatch):
+    retrieved = [SimpleNamespace(metadata={"node_id": "recipe-1"})]
+    cases = [
+        ("chat", "今晚吃什么？"),
+        ("recommendation", "推荐几道清淡的菜"),
+        ("recipe_lookup", "鸡肉和蔬菜有什么关系？"),
+    ]
+
+    for intent, question in cases:
+        system, generated_with = _answer_system(retrieved)
+        monkeypatch.setattr(
+            api_module,
+            "_parse_user_query",
+            lambda *_args, intent=intent: {"intent": intent, "dish_name": ""},
+        )
+
+        docs, chunks = _prepare_answer(system, question)
+
+        assert docs == []
+        assert list(chunks) == ["answer"]
+        assert generated_with == [(question, retrieved)]
+        system.retrieve.assert_called_once_with(question, top_k=8)
+
+
+def test_prepare_answer_continues_without_context_when_routing_fails(monkeypatch):
+    system, generated_with = _answer_system(retrieve_error=RuntimeError("unavailable"))
+    monkeypatch.setattr(
+        api_module,
+        "_parse_user_query",
+        lambda *_: {"intent": "chat", "dish_name": ""},
+    )
+
+    docs, chunks = _prepare_answer(system, "今晚吃什么？")
+
+    assert docs == []
+    assert list(chunks) == ["answer"]
+    assert generated_with == [("今晚吃什么？", [])]

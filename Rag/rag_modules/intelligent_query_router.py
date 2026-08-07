@@ -5,15 +5,29 @@
 - 图RAG检索：适合复杂的关系推理和知识发现
 """
 
+import hashlib
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
 
 from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
+QUERY_ANALYSIS_TIMEOUT_SECONDS = 15
+GRAPH_INTENT_KEYWORDS = (
+    "关系",
+    "相连",
+    "关联",
+    "多跳",
+    "路径",
+    "通过",
+    "搭配",
+    "影响",
+    "原因",
+    "区别",
+)
 
 
 class SearchStrategy(Enum):
@@ -124,6 +138,7 @@ class IntelligentQueryRouter:
                 messages=[{"role": "user", "content": analysis_prompt}],
                 temperature=0.1,
                 max_tokens=800,
+                timeout=QUERY_ANALYSIS_TIMEOUT_SECONDS,
             )
 
             result = json.loads(response.choices[0].message.content.strip())
@@ -140,6 +155,7 @@ class IntelligentQueryRouter:
                 reasoning=result.get("reasoning", "默认分析"),
             )
 
+            analysis = self._ensure_graph_strategy_for_explicit_relation(query, analysis)
             logger.info(
                 f"查询分析完成: {analysis.recommended_strategy.value} (置信度: {analysis.confidence:.2f})"
             )
@@ -161,7 +177,12 @@ class IntelligentQueryRouter:
             relation_keywords
         )
 
-        if complexity > 0.3 or relation_intensity > 0.3:
+        has_graph_intent = any(keyword in query for keyword in GRAPH_INTENT_KEYWORDS)
+        if has_graph_intent:
+            complexity = max(complexity, 0.7)
+            relation_intensity = max(relation_intensity, 0.8)
+
+        if has_graph_intent or complexity > 0.3 or relation_intensity > 0.3:
             strategy = SearchStrategy.GRAPH_RAG
         else:
             strategy = SearchStrategy.HYBRID_TRADITIONAL
@@ -176,11 +197,29 @@ class IntelligentQueryRouter:
             reasoning="基于规则的简单分析",
         )
 
+    @staticmethod
+    def _ensure_graph_strategy_for_explicit_relation(
+        query: str, analysis: QueryAnalysis
+    ) -> QueryAnalysis:
+        """Ensure explicit relationship questions reach GraphRAG despite LLM misclassification."""
+        if analysis.recommended_strategy == SearchStrategy.GRAPH_RAG or not any(
+            keyword in query for keyword in GRAPH_INTENT_KEYWORDS
+        ):
+            return analysis
+        return replace(
+            analysis,
+            query_complexity=max(analysis.query_complexity, 0.7),
+            relationship_intensity=max(analysis.relationship_intensity, 0.8),
+            reasoning_required=True,
+            recommended_strategy=SearchStrategy.GRAPH_RAG,
+            reasoning="Explicit relationship reasoning request",
+        )
+
     def route_query(self, query: str, top_k: int = 5) -> tuple[list[Document], QueryAnalysis]:
         """
         智能路由查询到最适合的检索引擎
         """
-        logger.info(f"开始智能路由: {query}")
+        logger.info("Starting intelligent query routing")
 
         # 1. 分析查询特征
         analysis = self.analyze_query(query)
@@ -199,6 +238,11 @@ class IntelligentQueryRouter:
             elif analysis.recommended_strategy == SearchStrategy.GRAPH_RAG:
                 logger.info("🕸️ 使用图RAG检索")
                 documents = self.graph_rag_retrieval.graph_rag_search(query, top_k)
+                if not documents:
+                    logger.warning(
+                        "GraphRAG returned no documents; falling back to hybrid retrieval"
+                    )
+                    documents = self.traditional_retrieval.hybrid_search(query, top_k)
 
             elif analysis.recommended_strategy == SearchStrategy.COMBINED:
                 logger.info("🔄 使用组合检索策略")
@@ -207,7 +251,11 @@ class IntelligentQueryRouter:
             # 4. 结果后处理
             documents = self._post_process_results(documents, analysis)
 
-            logger.info(f"路由完成，返回 {len(documents)} 个结果")
+            logger.warning(
+                "Query routing completed strategy=%s documents=%s",
+                analysis.recommended_strategy.value,
+                len(documents),
+            )
             return documents, analysis
 
         except Exception as e:
@@ -266,7 +314,7 @@ class IntelligentQueryRouter:
             # 先添加图RAG结果（通常质量更高）
             if i < len(graph_docs):
                 doc = graph_docs[i]
-                content_hash = hash(doc.page_content[:100])
+                content_hash = hashlib.sha256(doc.page_content[:100].encode("utf-8")).hexdigest()
                 if content_hash not in seen_contents:
                     seen_contents.add(content_hash)
                     doc.metadata["search_source"] = "graph_rag"
@@ -275,7 +323,7 @@ class IntelligentQueryRouter:
             # 再添加传统检索结果
             if i < len(traditional_docs):
                 doc = traditional_docs[i]
-                content_hash = hash(doc.page_content[:100])
+                content_hash = hashlib.sha256(doc.page_content[:100].encode("utf-8")).hexdigest()
                 if content_hash not in seen_contents:
                     seen_contents.add(content_hash)
                     doc.metadata["search_source"] = "traditional"
