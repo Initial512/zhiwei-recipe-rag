@@ -9,7 +9,6 @@ import hashlib
 import logging
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import Any
 
 from langchain_core.documents import Document
 
@@ -74,14 +73,6 @@ class IntelligentQueryRouter:
         self.graph_rag_retrieval = graph_rag_retrieval
         self.llm_client = llm_client
         self.config = config
-
-        # 路由统计
-        self.route_stats = {
-            "traditional_count": 0,
-            "graph_rag_count": 0,
-            "combined_count": 0,
-            "total_queries": 0,
-        }
 
     def analyze_query(self, query: str) -> QueryAnalysis:
         """
@@ -227,10 +218,7 @@ class IntelligentQueryRouter:
         # 1. 分析查询特征
         analysis = self.analyze_query(query)
 
-        # 2. 更新统计
-        self._update_route_stats(analysis.recommended_strategy)
-
-        # 3. 根据策略执行检索
+        # 2. 根据策略执行检索
         documents = []
 
         try:
@@ -251,7 +239,7 @@ class IntelligentQueryRouter:
                 logger.info("🔄 使用组合检索策略")
                 documents = self._combined_search(query, top_k)
 
-            # 4. 结果后处理
+            # 3. 结果后处理
             documents = self._post_process_results(documents, analysis)
 
             logger.warning(
@@ -351,50 +339,3 @@ class IntelligentQueryRouter:
             )
 
         return documents
-
-    def _update_route_stats(self, strategy: SearchStrategy):
-        """更新路由统计"""
-        self.route_stats["total_queries"] += 1
-
-        if strategy == SearchStrategy.HYBRID_TRADITIONAL:
-            self.route_stats["traditional_count"] += 1
-        elif strategy == SearchStrategy.GRAPH_RAG:
-            self.route_stats["graph_rag_count"] += 1
-        elif strategy == SearchStrategy.COMBINED:
-            self.route_stats["combined_count"] += 1
-
-    def get_route_statistics(self) -> dict[str, Any]:
-        """获取路由统计信息"""
-        total = self.route_stats["total_queries"]
-        if total == 0:
-            return self.route_stats
-
-        return {
-            **self.route_stats,
-            "traditional_ratio": self.route_stats["traditional_count"] / total,
-            "graph_rag_ratio": self.route_stats["graph_rag_count"] / total,
-            "combined_ratio": self.route_stats["combined_count"] / total,
-        }
-
-    def explain_routing_decision(self, query: str) -> str:
-        """解释路由决策过程"""
-        analysis = self.analyze_query(query)
-
-        explanation = f"""
-        查询路由分析报告
-        
-        查询：{query}
-        
-        特征分析：
-        - 复杂度：{analysis.query_complexity:.2f} ({"简单" if analysis.query_complexity < 0.4 else "中等" if analysis.query_complexity < 0.8 else "复杂"})
-        - 关系密集度：{analysis.relationship_intensity:.2f} ({"单一实体" if analysis.relationship_intensity < 0.4 else "实体关系" if analysis.relationship_intensity < 0.8 else "复杂关系网络"})
-        - 推理需求：{"是" if analysis.reasoning_required else "否"}
-        - 实体数量：{analysis.entity_count}
-        
-        推荐策略：{analysis.recommended_strategy.value}
-        置信度：{analysis.confidence:.2f}
-        
-        决策理由：{analysis.reasoning}
-        """
-
-        return explanation

@@ -27,7 +27,7 @@ function recipeImageUrl(imageUrl) {
     : "";
 }
 
-function parseLocation(historyState = window.history.state) {
+function parseLocation(_historyState = window.history.state) {
   const path = window.location.pathname;
   if (path.startsWith("/category/")) {
     return { type: "category", categoryName: decodeURIComponent(path.slice("/category/".length)) };
@@ -43,8 +43,7 @@ function parseLocation(historyState = window.history.state) {
     return {
       type: "answer",
       query: params.get("q") || "",
-      mode: ["recipe", "cards"].includes(params.get("mode")) ? params.get("mode") : "assistant",
-      recipeResults: Array.isArray(historyState?.recipeResults) ? historyState.recipeResults : undefined,
+      mode: params.get("mode") === "recipe" ? "recipe" : "assistant",
     };
   }
   return { type: "home" };
@@ -175,8 +174,6 @@ export function App() {
   const [answerTitle, setAnswerTitle] = useState("");
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState([]);
-  const [answerRecipeResults, setAnswerRecipeResults] = useState([]);
-  const [answerRecipeLoading, setAnswerRecipeLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
   const [catalogError, setCatalogError] = useState("");
@@ -326,28 +323,6 @@ export function App() {
     setStreaming(false);
   }, []);
 
-  const loadCardResults = useCallback(async (query, signal) => {
-    setAnswerRecipeResults([]);
-    setAnswerRecipeLoading(true);
-    setError("");
-    try {
-      const response = await fetch(
-        apiUrl(`/api/search/recipes?${new URLSearchParams({ query, limit: "12" })}`),
-        { signal },
-      );
-      if (!response.ok) throw new Error("菜谱加载失败");
-      const data = await response.json();
-      setAnswerRecipeResults(data.results || []);
-    } catch (requestError) {
-      if (requestError.name !== "AbortError") {
-        console.error("加载菜谱卡片失败", requestError);
-        setError(requestError.message || "菜谱加载失败");
-      }
-    } finally {
-      setAnswerRecipeLoading(false);
-    }
-  }, []);
-
   const startStream = useCallback(async (requestConfig) => {
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -397,17 +372,6 @@ export function App() {
 
   useEffect(() => {
     if (page.type !== "answer" || !page.query) return;
-    if (page.mode === "cards") {
-      if (Array.isArray(page.recipeResults)) {
-        setAnswerRecipeResults(page.recipeResults);
-        setAnswerRecipeLoading(false);
-        setError("");
-        return undefined;
-      }
-      const controller = new AbortController();
-      loadCardResults(page.query, controller.signal);
-      return () => controller.abort();
-    }
     startStream({
       title: page.query,
       url: page.mode === "recipe" ? "/api/chat/stream" : "/api/assistant/stream",
@@ -415,7 +379,7 @@ export function App() {
       openPanel: false,
     });
     return () => abortRef.current?.abort();
-  }, [page, loadCardResults, startStream]);
+  }, [page, startStream]);
 
   const saveScrollPosition = () => {
     window.history.replaceState({ ...window.history.state, scrollY: window.scrollY }, "");
@@ -445,13 +409,12 @@ export function App() {
     window.scrollTo({ top: 0, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
-  const openAnswerPage = useCallback((question, mode, recipeResults) => {
+  const openAnswerPage = useCallback((question, mode) => {
     saveScrollPosition();
     const params = new URLSearchParams({ q: question, mode });
-    const state = Array.isArray(recipeResults) ? { recipeResults } : {};
-    window.history.pushState(state, "", `/answer?${params}`);
+    window.history.pushState({}, "", `/answer?${params}`);
     setAnswerOpen(false);
-    setPage({ type: "answer", query: question, mode, recipeResults });
+    setPage({ type: "answer", query: question, mode });
     window.scrollTo({ top: 0 });
   }, []);
 
@@ -719,15 +682,7 @@ export function App() {
           <div className="answer-page-statusbar">
             <span>
               <Sparkle size={21} weight="fill" />
-              {page.mode === "cards"
-                ? (answerRecipeLoading
-                  ? "正在查找本地菜谱"
-                  : error
-                    ? "本地菜谱搜索失败"
-                    : answerRecipeResults.length
-                      ? "已找到本地菜谱"
-                      : "未找到本地菜谱")
-                : (streaming ? "知味 AI 正在生成回答" : "知味 AI 已完成回答")}
+              {streaming ? "知味 AI 正在生成回答" : "知味 AI 已完成回答"}
             </span>
             <button className="page-back" onClick={() => window.history.back()}>
               <ArrowLeft size={18} />返回上一页
@@ -738,47 +693,27 @@ export function App() {
             <header className="ai-answer-header">
               <div className="ai-answer-mark"><Sparkle size={31} weight="fill" /></div>
               <div>
-                <p>{page.mode === "cards" ? "RECIPE RESULTS" : page.mode === "recipe" ? "RECIPE KNOWLEDGE" : "ZHIWEI ASSISTANT"}</p>
+                <p>{page.mode === "recipe" ? "RECIPE KNOWLEDGE" : "ZHIWEI ASSISTANT"}</p>
                 <h1>{page.query}</h1>
                 <div className="ai-answer-tags">
                   <span>知味 AI</span>
-                  <span>{page.mode === "cards" ? "本地菜谱匹配" : page.mode === "recipe" ? "菜谱知识库回答" : "饮食助手回答"}</span>
+                  <span>{page.mode === "recipe" ? "菜谱知识库回答" : "饮食助手回答"}</span>
                 </div>
               </div>
             </header>
 
             <section className="ai-answer-body" aria-live="polite">
               <div className="ai-answer-body-heading">
-                <h2><Sparkle size={22} />{page.mode === "cards" ? "为你找到这些菜谱" : "知味回答"}</h2>
+                <h2><Sparkle size={22} />知味回答</h2>
                 {streaming && <span><i />生成中</span>}
               </div>
-              {page.mode === "cards" ? (
-                <>
-                  {answerRecipeLoading && <p className="answer-waiting">正在从菜谱库匹配菜名…</p>}
-                  {!answerRecipeLoading && answerRecipeResults.length > 0 && (
-                    <div className="answer-page-recipe-grid">
-                      {answerRecipeResults.map((recipe) => (
-                        <RecipeCard key={`${recipe.category}-${recipe.dish_name}`} recipe={recipe} onOpen={openRecipe} />
-                      ))}
-                    </div>
-                  )}
-                  {!answerRecipeLoading && !answerRecipeResults.length && !error && (
-                    <p className="empty-state">没有找到匹配的本地菜谱。</p>
-                  )}
-                </>
-              ) : (
-                <div className={`ai-answer-text ${streaming ? "is-streaming" : ""}`}>
-                  {answer ? <FormattedAnswer content={answer} /> : (!error && <span className="answer-waiting">正在理解你的问题…</span>)}
-                </div>
-              )}
+              <div className={`ai-answer-text ${streaming ? "is-streaming" : ""}`}>
+                {answer ? <FormattedAnswer content={answer} /> : (!error && <span className="answer-waiting">正在理解你的问题…</span>)}
+              </div>
               {error && (
                 <div className="answer-error" role="alert">
                   <span>{error}</span>
-                  <button onClick={() => (
-                    page.mode === "cards"
-                      ? loadCardResults(page.query)
-                      : lastRequest && startStream(lastRequest)
-                  )}>{page.mode === "cards" ? "重新搜索" : "重新生成"}</button>
+                  <button onClick={() => lastRequest && startStream(lastRequest)}>重新生成</button>
                 </div>
               )}
               {streaming && (

@@ -139,6 +139,59 @@ def test_entity_relation_query_uses_target_names_not_target_labels():
     assert "target_labels" not in captured["parameters"]
 
 
+def test_multi_hop_query_limits_sources_and_paths_and_uses_timeout():
+    captured = {}
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def run(self, query, parameters):
+            captured["query"] = query
+            captured["parameters"] = parameters
+            return []
+
+    retrieval = _graph_retrieval()
+    retrieval.driver = SimpleNamespace(session=Session)
+    retrieval.config = SimpleNamespace(neo4j_query_timeout_seconds=5)
+
+    assert retrieval.multi_hop_traversal(
+        GraphQuery(
+            query_type=QueryType.MULTI_HOP,
+            source_entities=["鸡肉"] * 8,
+            max_depth=9,
+            max_nodes=80,
+        )
+    ) == []
+
+    assert captured["parameters"]["source_limit"] == 5
+    assert captured["parameters"]["path_limit"] == 20
+    assert "COUNT" not in captured["query"].text
+    assert "[*1..3]" in captured["query"].text
+    assert captured["query"].timeout == 5
+
+
+def test_graph_paths_keep_the_neo4j_relationship_type():
+    retrieval = _graph_retrieval()
+
+    class Relationship(dict):
+        type = "REQUIRES"
+
+    record = {
+        "path_nodes": [],
+        "rels": [Relationship(amount="200g")],
+        "path_len": 1,
+        "relevance": 1.0,
+    }
+
+    assert retrieval._parse_neo4j_path(record).relationships == [
+        {"type": "REQUIRES", "properties": {"amount": "200g"}}
+    ]
+
+
 def test_graph_intent_accepts_markdown_json_from_model():
     retrieval = _graph_retrieval()
     retrieval.config = SimpleNamespace(llm_model="test")

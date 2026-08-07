@@ -222,3 +222,18 @@ def test_prepare_answer_continues_without_context_when_routing_fails(monkeypatch
     assert docs == []
     assert list(chunks) == ["answer"]
     assert generated_with == [("今晚吃什么？", [])]
+
+
+def test_chat_stream_guards_assistant_questions_from_retrieval(monkeypatch):
+    generate = Mock(return_value=iter(["assistant answer"]))
+    system = SimpleNamespace(generation_module=SimpleNamespace(generate_adaptive_answer_stream=generate))
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(rag=system)))
+    prepare = Mock()
+    monkeypatch.setattr(api_module, "_classify_query", lambda *_: "assistant")
+    monkeypatch.setattr(api_module, "_prepare_answer", prepare)
+
+    response = api_module.chat_stream(api_module.ChatRequest(question="你是谁？"), request)
+
+    prepare.assert_not_called()
+    generate.assert_called_once_with("你是谁？", [])
+    assert response.media_type == "text/event-stream"

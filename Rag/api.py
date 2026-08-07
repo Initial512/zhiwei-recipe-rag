@@ -46,35 +46,6 @@ class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
 
 
-RECIPE_QUERY_MARKERS = (
-    "怎么做",
-    "做法",
-    "食材",
-    "原料",
-    "制作步骤",
-    "菜谱",
-    "推荐",
-    "吃什么",
-    "想吃",
-    "几道菜",
-    "哪些菜",
-    "菜有哪些",
-    "配菜",
-    "早餐",
-    "午餐",
-    "晚餐",
-    "夜宵",
-    "汤品",
-    "甜品",
-    "主食",
-    "荤菜",
-    "素菜",
-    "水产",
-    "饮品",
-    "调料",
-)
-
-
 def _local_query_type(system: RecipeRAGSystem, question: str) -> str | None:
     if not question.strip():
         return None
@@ -517,13 +488,10 @@ def _find_recipe_doc(system: RecipeRAGSystem, dish_name: str):
 
 
 def _recipe_summary(doc) -> dict[str, str]:
-    parsed = _parse_recipe_doc(doc)
+    source = _source_from_doc(doc)
     return {
-        "dish_name": parsed["dish_name"],
-        "category": parsed["category"],
-        "difficulty": parsed["difficulty"],
-        "description": parsed["description"],
-        "image_url": parsed["image_url"],
+        **source,
+        "description": _extract_description(doc.page_content),
     }
 
 
@@ -620,6 +588,14 @@ def _event_stream(docs, chunks: Iterator[str]):
         trace_id = uuid.uuid4().hex[:12]
         logger.exception("流式回答失败 trace_id=%s", trace_id)
         yield _sse("error", {"message": "生成回答失败", "trace_id": trace_id})
+
+
+def _stream_response(docs, chunks: Iterator[str]) -> StreamingResponse:
+    return StreamingResponse(
+        _event_stream(docs, chunks),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @asynccontextmanager
@@ -809,12 +785,12 @@ def recommendations(
 @app.post("/api/chat/stream")
 @limiter.limit("10/minute")
 def chat_stream(payload: ChatRequest, request: Request):
-    docs, chunks = _prepare_answer(request.app.state.rag, payload.question.strip())
-    return StreamingResponse(
-        _event_stream(docs, chunks),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    system = request.app.state.rag
+    question = payload.question.strip()
+    if _classify_query(system, question) == "assistant":
+        return _stream_response([], system.generation_module.generate_adaptive_answer_stream(question, []))
+    docs, chunks = _prepare_answer(system, question)
+    return _stream_response(docs, chunks)
 
 
 @app.post("/api/assistant/stream")
@@ -823,19 +799,11 @@ def assistant_stream(payload: ChatRequest, request: Request):
     chunks = request.app.state.rag.generation_module.generate_adaptive_answer_stream(
         payload.question.strip(), []
     )
-    return StreamingResponse(
-        _event_stream([], chunks),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return _stream_response([], chunks)
 
 
 @app.post("/api/recipes/{dish_name}/ingredients/stream")
 @limiter.limit("10/minute")
 def ingredients_stream(dish_name: str, request: Request):
     docs, chunks = _prepare_ingredients(request.app.state.rag, unquote(dish_name))
-    return StreamingResponse(
-        _event_stream(docs, chunks),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return _stream_response(docs, chunks)

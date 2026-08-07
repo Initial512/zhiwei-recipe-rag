@@ -12,6 +12,10 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 
+class GenerationStreamError(RuntimeError):
+    """Raised when a streamed model response cannot be completed safely."""
+
+
 SYSTEM_PROMPT = """你是知味 AI 饮食推荐小助手，专注于帮助用户找菜谱、挑选食材和解决做菜问题。
 
 回答边界：
@@ -108,9 +112,9 @@ class GenerationIntegrationModule:
 
             return response.choices[0].message.content.strip()
 
-        except Exception as e:
-            logger.error(f"LightRAG答案生成失败: {e}")
-            return f"抱歉，生成回答时出现错误：{str(e)}"
+        except Exception:
+            logger.exception("LightRAG答案生成失败")
+            return "抱歉，暂时无法生成回答，请稍后重试。"
 
     def generate_adaptive_answer_stream(
         self, question: str, documents: list[Document], max_retries: int = 3
@@ -120,6 +124,7 @@ class GenerationIntegrationModule:
         """
         messages = self._build_messages(question, documents)
 
+        emitted_delta = False
         for attempt in range(max_retries):
             try:
                 response = self.client.chat.completions.create(
@@ -136,35 +141,23 @@ class GenerationIntegrationModule:
                 else:
                     print(f"第{attempt + 1}次尝试流式生成...\n")
 
-                full_response = ""
                 for chunk in response:
                     if chunk.choices[0].delta.content:
                         content = chunk.choices[0].delta.content
-                        full_response += content
+                        emitted_delta = True
                         yield content  # 使用yield返回流式内容
 
                 # 如果成功完成，退出重试循环
                 return
 
-            except Exception as e:
-                logger.warning(f"流式生成第{attempt + 1}次尝试失败: {e}")
+            except Exception as exc:
+                logger.warning("流式生成第%s次尝试失败", attempt + 1, exc_info=True)
+                if emitted_delta:
+                    raise GenerationStreamError("stream interrupted after response started") from exc
 
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 2  # 递增等待时间
                     print(f"⚠️ 连接中断，{wait_time}秒后重试...")
                     time.sleep(wait_time)
                     continue
-                else:
-                    # 所有重试都失败，使用非流式作为后备
-                    logger.error("流式生成完全失败，尝试非流式后备方案")
-                    print("⚠️ 流式生成失败，切换到标准模式...")
-
-                    try:
-                        fallback_response = self.generate_adaptive_answer(question, documents)
-                        yield fallback_response
-                        return
-                    except Exception as fallback_error:
-                        logger.error(f"后备生成也失败: {fallback_error}")
-                        error_msg = f"抱歉，生成回答时出现网络错误，请稍后重试。错误信息：{str(e)}"
-                        yield error_msg
-                        return
+                raise GenerationStreamError("stream could not start") from exc

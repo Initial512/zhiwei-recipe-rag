@@ -27,5 +27,8 @@ class RAGConfig:
     )
     llm_model: str = field(default_factory=lambda: _env("LLM_MODEL", ""))
     top_k: int = field(default_factory=lambda: int(_env("RAG_TOP_K", "5")))
+    neo4j_query_timeout_seconds: float = field(
+        default_factory=lambda: float(_env("NEO4J_QUERY_TIMEOUT_SECONDS", "5"))
+    )
     temperature: float = 0.1
     max_tokens: int = 2048

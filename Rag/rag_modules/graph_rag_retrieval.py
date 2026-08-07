@@ -10,7 +10,7 @@ from enum import Enum
 from typing import Any
 
 from langchain_core.documents import Document
-from neo4j import GraphDatabase
+from neo4j import GraphDatabase, Query
 
 from .structured_output import bounded_int, parse_json_object, string_list
 
@@ -61,7 +61,6 @@ class KnowledgeSubgraph:
     connected_nodes: list[dict[str, Any]]
     relationships: list[dict[str, Any]]
     graph_metrics: dict[str, float]
-    reasoning_chains: list[list[str]]
 
 
 class GraphRAGRetrieval:
@@ -83,7 +82,6 @@ class GraphRAGRetrieval:
         # 图结构缓存
         self.entity_cache = {}
         self.relation_cache = {}
-        self.subgraph_cache = {}
 
     def initialize(self):
         """初始化图RAG检索系统"""
@@ -337,20 +335,18 @@ class GraphRAGRetrieval:
 
         try:
             with self.driver.session() as session:
-                # 构建多跳遍历查询
                 source_entities = graph_query.source_entities
                 target_entities = graph_query.target_entities or []
-                max_depth = graph_query.max_depth
+                max_depth = min(graph_query.max_depth, 3)
 
                 # 根据查询类型选择不同的遍历策略
                 if graph_query.query_type == QueryType.MULTI_HOP:
                     cypher_query = f"""
-                    // 多跳推理查询
                     UNWIND $source_entities as source_name
                     MATCH (source)
                     WHERE source.name CONTAINS source_name OR source.nodeId = source_name
-                    
-                    // 执行多跳遍历
+                    WITH DISTINCT source
+                    LIMIT $source_limit
                     MATCH path = (source)-[*1..{max_depth}]-(target)
                     WHERE NOT source = target
                     AND (
@@ -362,30 +358,31 @@ class GraphRAGRetrieval:
                         )
                     )
                     
-                    // 计算路径相关性
                     WITH path, source, target,
                          length(path) as path_len,
                          relationships(path) as rels,
                          nodes(path) as path_nodes
-                    
-                    // 路径评分：短路径 + 高度数节点 + 关系类型匹配
                     WITH path, source, target, path_len, rels, path_nodes,
                          (1.0 / path_len) + 
-                         (REDUCE(s = 0.0, n IN path_nodes | s + COUNT {{ (n)--() }}) / 10.0 / size(path_nodes)) +
                          (CASE WHEN ANY(r IN rels WHERE type(r) IN $relation_types) THEN 0.3 ELSE 0.0 END) as relevance
                     
                     ORDER BY relevance DESC
-                    LIMIT 20
+                    LIMIT $path_limit
                     
                     RETURN path, source, target, path_len, rels, path_nodes, relevance
                     """
 
                     result = session.run(
-                        cypher_query,
+                        Query(
+                            cypher_query,
+                            timeout=self.config.neo4j_query_timeout_seconds,
+                        ),
                         {
                             "source_entities": source_entities,
                             "target_entities": target_entities,
                             "relation_types": graph_query.relation_types or [],
+                            "source_limit": min(len(source_entities), 5),
+                            "path_limit": min(graph_query.max_nodes, 20),
                         },
                     )
 
@@ -468,33 +465,6 @@ class GraphRAGRetrieval:
 
         # 降级方案：简单邻居查询
         return self._fallback_subgraph_extraction(graph_query)
-
-    def graph_structure_reasoning(self, subgraph: KnowledgeSubgraph, query: str) -> list[str]:
-        """
-        基于图结构的推理：这是图RAG的智能之处
-        不仅检索信息，还能进行逻辑推理
-        """
-        reasoning_chains = []
-
-        try:
-            # 1. 识别推理模式
-            reasoning_patterns = self._identify_reasoning_patterns(subgraph)
-
-            # 2. 构建推理链
-            for pattern in reasoning_patterns:
-                chain = self._build_reasoning_chain(pattern, subgraph)
-                if chain:
-                    reasoning_chains.append(chain)
-
-            # 3. 验证推理链的可信度
-            validated_chains = self._validate_reasoning_chains(reasoning_chains, query)
-
-            logger.info(f"图结构推理完成，生成 {len(validated_chains)} 条推理链")
-            return validated_chains
-
-        except Exception as e:
-            logger.error(f"图结构推理失败: {e}")
-            return []
 
     def adaptive_query_planning(
         self, query: str, base_query: GraphQuery | None = None
@@ -608,8 +578,7 @@ class GraphRAGRetrieval:
 
         if graph_query.query_type == QueryType.SUBGRAPH:
             subgraph = self.extract_knowledge_subgraph(graph_query)
-            reasoning_chains = self.graph_structure_reasoning(subgraph, query)
-            return self._subgraph_to_documents(subgraph, reasoning_chains, query)
+            return self._subgraph_to_documents(subgraph, query)
 
         return []
 
@@ -645,7 +614,9 @@ class GraphRAGRetrieval:
 
             relationships = []
             for rel in record["rels"]:
-                relationships.append({"type": type(rel).__name__, "properties": dict(rel)})
+                relationships.append(
+                    {"type": getattr(rel, "type", type(rel).__name__), "properties": dict(rel)}
+                )
 
             return GraphPath(
                 nodes=path_nodes,
@@ -671,7 +642,6 @@ class GraphRAGRetrieval:
                 connected_nodes=connected_nodes,
                 relationships=relationships,
                 graph_metrics=record["metrics"],
-                reasoning_chains=[],
             )
         except Exception as e:
             logger.error(f"构建知识子图失败: {e}")
@@ -680,7 +650,6 @@ class GraphRAGRetrieval:
                 connected_nodes=[],
                 relationships=[],
                 graph_metrics={},
-                reasoning_chains=[],
             )
 
     def _paths_to_documents(self, paths: list[GraphPath], query: str) -> list[Document]:
@@ -710,9 +679,7 @@ class GraphRAGRetrieval:
 
         return documents
 
-    def _subgraph_to_documents(
-        self, subgraph: KnowledgeSubgraph, reasoning_chains: list[str], query: str
-    ) -> list[Document]:
+    def _subgraph_to_documents(self, subgraph: KnowledgeSubgraph, query: str) -> list[Document]:
         """将知识子图转换为Document对象"""
         documents = []
 
@@ -726,7 +693,6 @@ class GraphRAGRetrieval:
                 "node_count": len(subgraph.connected_nodes),
                 "relationship_count": len(subgraph.relationships),
                 "graph_density": subgraph.graph_metrics.get("density", 0.0),
-                "reasoning_chains": reasoning_chains,
                 "recipe_name": subgraph.central_nodes[0].get("name", "知识子图")
                 if subgraph.central_nodes
                 else "知识子图",
@@ -770,18 +736,6 @@ class GraphRAGRetrieval:
         if any(keyword in query for keyword in ("多跳", "路径", "通过", "相连", "搭配")):
             return max(complexity, 0.4)
         return min(complexity, 1.0)
-
-    def _identify_reasoning_patterns(self, subgraph: KnowledgeSubgraph) -> list[str]:
-        """识别推理模式"""
-        return ["因果关系", "组成关系", "相似关系"]
-
-    def _build_reasoning_chain(self, pattern: str, subgraph: KnowledgeSubgraph) -> str | None:
-        """构建推理链"""
-        return f"基于{pattern}的推理链"
-
-    def _validate_reasoning_chains(self, chains: list[str], query: str) -> list[str]:
-        """验证推理链"""
-        return chains[:3]
 
     def _find_entity_relations(self, graph_query: GraphQuery, session) -> list[GraphPath]:
         """Find direct relationships, optionally constrained by target entities."""
@@ -857,7 +811,6 @@ class GraphRAGRetrieval:
             connected_nodes=[],
             relationships=[],
             graph_metrics={},
-            reasoning_chains=[],
         )
 
     def close(self):
