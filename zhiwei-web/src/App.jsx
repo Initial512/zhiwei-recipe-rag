@@ -455,12 +455,27 @@ export function App() {
     window.scrollTo({ top: 0 });
   }, []);
 
-  const submitSearch = (question) => {
+  const submitSearch = async (question) => {
     const value = question.trim();
     if (!value) return;
     setChatInput("");
     setSearchError("");
-    openAnswerPage(value, "recipe");
+    setSearching(true);
+    try {
+      const response = await fetch(apiUrl("/api/query/classify"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: value }),
+      });
+      if (!response.ok) throw new Error("问题分类失败");
+      const classification = await response.json();
+      openAnswerPage(value, classification.type === "recipe" ? "recipe" : "assistant");
+    } catch (requestError) {
+      console.error("问题分类失败，按助手模式处理", requestError);
+      openAnswerPage(value, "assistant");
+    } finally {
+      setSearching(false);
+    }
   };
 
   const activeCount = useMemo(
