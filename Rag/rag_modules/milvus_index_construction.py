@@ -4,12 +4,11 @@ Milvus索引构建模块
 
 import logging
 import time
-from typing import List, Dict, Any, Optional
+from typing import Any
 
-from pymilvus import MilvusClient, DataType, CollectionSchema, FieldSchema
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
-import numpy as np
+from langchain_huggingface import HuggingFaceEmbeddings
+from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +200,7 @@ class MilvusIndexConstructionModule:
             logger.error(f"创建索引失败: {e}")
             return False
 
-    def build_vector_index(self, chunks: List[Document]) -> bool:
+    def build_vector_index(self, chunks: list[Document]) -> bool:
         """
         构建向量索引
 
@@ -228,7 +227,7 @@ class MilvusIndexConstructionModule:
 
             # 3. 准备插入数据
             entities = []
-            for i, (chunk, vector) in enumerate(zip(chunks, vectors)):
+            for i, (chunk, vector) in enumerate(zip(chunks, vectors, strict=False)):
                 entity = {
                     "id": self._safe_truncate(chunk.metadata.get("chunk_id", f"chunk_{i}"), 150),
                     "vector": vector,
@@ -276,7 +275,7 @@ class MilvusIndexConstructionModule:
             logger.error(f"构建向量索引失败: {e}")
             return False
 
-    def add_documents(self, new_chunks: List[Document]) -> bool:
+    def add_documents(self, new_chunks: list[Document]) -> bool:
         """
         向现有索引添加新文档
 
@@ -298,7 +297,7 @@ class MilvusIndexConstructionModule:
 
             # 准备插入数据
             entities = []
-            for i, (chunk, vector) in enumerate(zip(new_chunks, vectors)):
+            for i, (chunk, vector) in enumerate(zip(new_chunks, vectors, strict=False)):
                 entity = {
                     "id": self._safe_truncate(
                         chunk.metadata.get("chunk_id", f"new_chunk_{i}_{int(time.time())}"), 150
@@ -332,8 +331,8 @@ class MilvusIndexConstructionModule:
             return False
 
     def similarity_search(
-        self, query: str, k: int = 5, filters: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        self, query: str, k: int = 5, filters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """
         相似度搜索
 
@@ -431,7 +430,7 @@ class MilvusIndexConstructionModule:
             logger.error(f"相似度搜索失败: {e}")
             return []
 
-    def get_collection_stats(self) -> Dict[str, Any]:
+    def get_collection_stats(self) -> dict[str, Any]:
         """
         获取集合统计信息
 

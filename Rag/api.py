@@ -132,6 +132,9 @@ def _unique_sources(docs) -> list[dict[str, str]]:
 
 
 def _all_unique_recipes(system: RecipeRAGSystem) -> list[dict[str, str]]:
+    catalog = getattr(system, "catalog", None)
+    if catalog is not None:
+        return list(catalog.recipes)
     supported = set(_visible_categories(system))
     recipes_by_key = {}
     for doc in system.data_module.documents:
@@ -153,6 +156,9 @@ def _all_unique_recipes(system: RecipeRAGSystem) -> list[dict[str, str]]:
 
 
 def _recipe_documents(system: RecipeRAGSystem) -> list:
+    catalog = getattr(system, "catalog", None)
+    if catalog is not None:
+        return list(catalog.documents)
     supported = set(_visible_categories(system))
     documents_by_key = {}
     for doc in system.data_module.documents:
@@ -237,19 +243,38 @@ def _section_lines(content: str, title: str) -> list[str]:
 
 def _fallback_tips(category: str) -> list[str]:
     tips_by_category = {
-        "\u6c64\u54c1": ["\u51fa\u9505\u524d\u5148\u8bd5\u5473\uff0c\u518d\u6839\u636e\u54b8\u6de1\u8c03\u6574\u8c03\u5473\u3002"],
-        "\u6c34\u4ea7": ["\u6d77\u9c9c\u8bf7\u5145\u5206\u52a0\u70ed\u81f3\u719f\uff0c\u8d77\u9505\u540e\u5c3d\u5feb\u98df\u7528\u3002"],
-        "\u8089\u83dc": ["\u8089\u7c7b\u52a0\u70ed\u81f3\u719f\u900f\u540e\u518d\u88c5\u76d8\uff0c\u53ef\u4ee5\u66f4\u5b89\u5fc3\u5730\u4eab\u7528\u3002"],
-        "\u7d20\u83dc": ["\u852c\u83dc\u5efa\u8bae\u5927\u706b\u5feb\u7092\uff0c\u4e34\u51fa\u9505\u518d\u8c03\u5473\u3002"],
-        "\u751c\u70b9": ["\u6210\u54c1\u51b7\u5374\u81f3\u5b9a\u578b\u540e\u518d\u98df\u7528\uff0c\u53e3\u611f\u66f4\u4f73\u3002"],
+        "\u6c64\u54c1": [
+            "\u51fa\u9505\u524d\u5148\u8bd5\u5473\uff0c\u518d\u6839\u636e\u54b8\u6de1\u8c03\u6574\u8c03\u5473\u3002"
+        ],
+        "\u6c34\u4ea7": [
+            "\u6d77\u9c9c\u8bf7\u5145\u5206\u52a0\u70ed\u81f3\u719f\uff0c\u8d77\u9505\u540e\u5c3d\u5feb\u98df\u7528\u3002"
+        ],
+        "\u8089\u83dc": [
+            "\u8089\u7c7b\u52a0\u70ed\u81f3\u719f\u900f\u540e\u518d\u88c5\u76d8\uff0c\u53ef\u4ee5\u66f4\u5b89\u5fc3\u5730\u4eab\u7528\u3002"
+        ],
+        "\u7d20\u83dc": [
+            "\u852c\u83dc\u5efa\u8bae\u5927\u706b\u5feb\u7092\uff0c\u4e34\u51fa\u9505\u518d\u8c03\u5473\u3002"
+        ],
+        "\u751c\u70b9": [
+            "\u6210\u54c1\u51b7\u5374\u81f3\u5b9a\u578b\u540e\u518d\u98df\u7528\uff0c\u53e3\u611f\u66f4\u4f73\u3002"
+        ],
     }
-    return tips_by_category.get(category, ["\u53ef\u4ee5\u6839\u636e\u4e2a\u4eba\u53e3\u5473\u9002\u91cf\u8c03\u6574\u8c03\u5473\u3002"])
+    return tips_by_category.get(
+        category,
+        [
+            "\u53ef\u4ee5\u6839\u636e\u4e2a\u4eba\u53e3\u5473\u9002\u91cf\u8c03\u6574\u8c03\u5473\u3002"
+        ],
+    )
 
 
 def _clean_tip_line(line: str) -> str:
     """Discard Markdown source credits and retain only cooking guidance."""
     raw = line.strip()
-    if re.search(r"https?://|www\.|b23\.tv|bilibili|youtube|douyin|xiaohongshu|xiachufang|weixin", raw, re.IGNORECASE):
+    if re.search(
+        r"https?://|www\.|b23\.tv|bilibili|youtube|douyin|xiaohongshu|xiachufang|weixin",
+        raw,
+        re.IGNORECASE,
+    ):
         return ""
     value = _clean_markdown(raw)
     source_prefix = (
@@ -258,9 +283,23 @@ def _clean_tip_line(line: str) -> str:
     )
     if re.match(source_prefix, value, re.IGNORECASE):
         return ""
-    if any(marker in value.lower() for marker in ("\u6559\u7a0b", "\u83dc\u8c31\u6765\u6e90", "\u5c0f\u7ea2\u4e66", "\u4e0b\u53a8\u623f", "\u54d4\u54e9\u54d4\u54e9", "b\u7ad9")):
+    if any(
+        marker in value.lower()
+        for marker in (
+            "\u6559\u7a0b",
+            "\u83dc\u8c31\u6765\u6e90",
+            "\u5c0f\u7ea2\u4e66",
+            "\u4e0b\u53a8\u623f",
+            "\u54d4\u54e9\u54d4\u54e9",
+            "b\u7ad9",
+        )
+    ):
         return ""
-    value = re.sub(r"\s*(?:[-—|｜]\s*)?(?:\u6765\u6e90|\u4f5c\u8005|\u539f\u6587|\u89c6\u9891|\u516c\u4f17\u53f7)\s*[:\uff1a].*$", "", value)
+    value = re.sub(
+        r"\s*(?:[-—|｜]\s*)?(?:\u6765\u6e90|\u4f5c\u8005|\u539f\u6587|\u89c6\u9891|\u516c\u4f17\u53f7)\s*[:\uff1a].*$",
+        "",
+        value,
+    )
     if re.fullmatch(r".{1,16}(?:\u7684)?(?:\u83dc\u8c31|\u98df\u8c31)", value):
         return ""
     return value.strip()
@@ -462,6 +501,9 @@ def _find_recipe_doc(system: RecipeRAGSystem, dish_name: str):
     target = dish_name.strip().casefold()
     if dish_name.strip() in EXCLUDED_DISH_NAMES:
         return None
+    catalog = getattr(system, "catalog", None)
+    if catalog is not None:
+        return catalog.find(target)
     supported = set(_visible_categories(system))
     return next(
         (
@@ -483,6 +525,46 @@ def _recipe_summary(doc) -> dict[str, str]:
         "description": parsed["description"],
         "image_url": parsed["image_url"],
     }
+
+
+class RecipeCatalog:
+    """Read-only API catalog built once after the knowledge base is ready."""
+
+    def __init__(self, system: RecipeRAGSystem):
+        supported = set(_visible_categories(system))
+        documents_by_key = {}
+        for doc in system.data_module.documents:
+            category = doc.metadata.get("category")
+            dish_name = doc.metadata.get("dish_name")
+            if category in supported and _is_visible_recipe(dish_name):
+                documents_by_key.setdefault((category, dish_name), doc)
+
+        self.documents = tuple(documents_by_key.values())
+        self.by_name = {
+            str(doc.metadata.get("dish_name", "")).casefold(): doc for doc in self.documents
+        }
+        self.recipes = tuple(_recipe_summary(doc) for doc in self.documents)
+        self.by_category = {
+            category: tuple(
+                sorted(
+                    (recipe for recipe in self.recipes if recipe["category"] == category),
+                    key=lambda recipe: recipe["dish_name"],
+                )
+            )
+            for category in _visible_categories(system)
+        }
+
+    def find(self, dish_name: str):
+        return self.by_name.get(dish_name.strip().casefold())
+
+    def search_names(self, query: str, limit: int) -> list[dict[str, str]]:
+        keyword = query.casefold()
+        return [
+            recipe
+            for recipe in self.recipes
+            if keyword in recipe["dish_name"].casefold()
+            or recipe["dish_name"].casefold() in keyword
+        ][:limit]
 
 
 def _prepare_answer(system: RecipeRAGSystem, question: str):
@@ -540,10 +622,14 @@ def _event_stream(docs, chunks: Iterator[str]):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     system = RecipeRAGSystem()
-    system.initialize_system()
-    system.build_knowledge_base()
-    app.state.rag = system
-    yield
+    try:
+        system.initialize_system()
+        system.build_knowledge_base()
+        system.catalog = RecipeCatalog(system)
+        app.state.rag = system
+        yield
+    finally:
+        system.close()
 
 
 app = FastAPI(title="知味 AI Recipe API", version="1.0.0", lifespan=lifespan)
@@ -580,6 +666,9 @@ def health(request: Request):
 def categories(request: Request):
     system = request.app.state.rag
     labels = _visible_categories(system)
+    catalog = getattr(system, "catalog", None)
+    if catalog is not None:
+        return [{"name": label, "count": len(catalog.by_category[label])} for label in labels]
     dishes_by_category = {label: set() for label in labels}
     for doc in system.data_module.documents:
         category = doc.metadata.get("category")
@@ -606,6 +695,11 @@ def recipes(
 ):
     system = request.app.state.rag
     supported = set(_visible_categories(system))
+    catalog = getattr(system, "catalog", None)
+    if catalog is not None and category in supported:
+        rows = catalog.by_category[category]
+        keyword = query.strip().casefold()
+        return [row for row in rows if not keyword or keyword in row["dish_name"].casefold()]
     if category not in supported:
         raise HTTPException(status_code=400, detail="不支持的菜谱分类")
     keyword = query.strip().casefold()
@@ -675,6 +769,9 @@ def search_recipe_names(
     value = query.strip()
     if not value:
         raise HTTPException(status_code=422, detail="查询内容不能为空")
+    catalog = getattr(request.app.state.rag, "catalog", None)
+    if catalog is not None:
+        return {"query": value, "results": catalog.search_names(value, limit)}
     keyword = value.casefold()
     matches = []
     for doc in _recipe_documents(request.app.state.rag):

@@ -3,12 +3,11 @@
 """
 
 import logging
-import json
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any
 
-from neo4j import GraphDatabase
 from langchain_core.documents import Document
+from neo4j import GraphDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +17,9 @@ class GraphNode:
     """图节点数据结构"""
 
     node_id: str
-    labels: List[str]
+    labels: list[str]
     name: str
-    properties: Dict[str, Any]
+    properties: dict[str, Any]
 
 
 @dataclass
@@ -30,7 +29,7 @@ class GraphRelation:
     start_node_id: str
     end_node_id: str
     relation_type: str
-    properties: Dict[str, Any]
+    properties: dict[str, Any]
 
 
 class GraphDataPreparationModule:
@@ -64,11 +63,11 @@ class GraphDataPreparationModule:
         self.password = password
         self.database = database
         self.driver = None
-        self.documents: List[Document] = []
-        self.chunks: List[Document] = []
-        self.recipes: List[GraphNode] = []
-        self.ingredients: List[GraphNode] = []
-        self.cooking_steps: List[GraphNode] = []
+        self.documents: list[Document] = []
+        self.chunks: list[Document] = []
+        self.recipes: list[GraphNode] = []
+        self.ingredients: list[GraphNode] = []
+        self.cooking_steps: list[GraphNode] = []
 
         self._connect()
 
@@ -95,11 +94,11 @@ class GraphDataPreparationModule:
             self.driver.close()
             logger.info("Neo4j连接已关闭")
 
-    def get_supported_categories(self) -> List[str]:
+    def get_supported_categories(self) -> list[str]:
         """Return the stable category taxonomy expected by the existing API."""
         return self.CATEGORY_ORDER.copy()
 
-    def load_graph_data(self) -> Dict[str, Any]:
+    def load_graph_data(self) -> dict[str, Any]:
         """
         从Neo4j加载图数据
 
@@ -194,7 +193,7 @@ class GraphDataPreparationModule:
             "cooking_steps": len(self.cooking_steps),
         }
 
-    def build_recipe_documents(self) -> List[Document]:
+    def build_recipe_documents(self) -> list[Document]:
         """
         构建菜谱文档，集成相关的食材和步骤信息
 
@@ -329,14 +328,14 @@ class GraphDataPreparationModule:
         logger.info(f"成功构建 {len(documents)} 个菜谱文档")
         return documents
 
-    def get_parent_documents(self, chunks: List[Document]) -> List[Document]:
+    def get_parent_documents(self, chunks: list[Document]) -> list[Document]:
         """Map retrieved chunks back to their complete recipe documents."""
         ids = {
             str(item.metadata.get("parent_id") or item.metadata.get("node_id")) for item in chunks
         }
         return [doc for doc in self.documents if str(doc.metadata.get("node_id")) in ids]
 
-    def chunk_documents(self, chunk_size: int = 500, chunk_overlap: int = 50) -> List[Document]:
+    def chunk_documents(self, chunk_size: int = 500, chunk_overlap: int = 50) -> list[Document]:
         """
         对文档进行分块处理
 
@@ -433,7 +432,7 @@ class GraphDataPreparationModule:
         logger.info(f"文档分块完成，共生成 {len(chunks)} 个块")
         return chunks
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """
         获取数据统计信息
 

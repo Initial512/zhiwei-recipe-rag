@@ -1,9 +1,11 @@
 .venv/
 .env
 Rag/.env
-Rag/**/__pycache__/
-Rag/.pytest_cache/
-zhiwei-web/node_modules
-zhiwei-web/dist
-zhiwei-web/.npm-cache
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+node_modules/
+dist/
+.npm-cache/
 *.log

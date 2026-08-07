@@ -7,9 +7,9 @@
 
 import json
 import logging
-from typing import List, Dict, Tuple, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 from langchain_core.documents import Document
 
@@ -176,7 +176,7 @@ class IntelligentQueryRouter:
             reasoning="基于规则的简单分析",
         )
 
-    def route_query(self, query: str, top_k: int = 5) -> Tuple[List[Document], QueryAnalysis]:
+    def route_query(self, query: str, top_k: int = 5) -> tuple[list[Document], QueryAnalysis]:
         """
         智能路由查询到最适合的检索引擎
         """
@@ -216,12 +216,11 @@ class IntelligentQueryRouter:
             documents = self.traditional_retrieval.hybrid_search(query, top_k)
             return documents, analysis
 
-    def _combined_search(self, query: str, top_k: int) -> List[Document]:
+    def _combined_search(self, query: str, top_k: int) -> list[Document]:
         """
         组合搜索策略：并行执行传统检索和图RAG检索
         """
         import concurrent.futures
-        import threading
 
         # 分配结果数量
         traditional_k = max(1, top_k // 2)
@@ -285,8 +284,8 @@ class IntelligentQueryRouter:
         return combined_docs[:top_k]
 
     def _post_process_results(
-        self, documents: List[Document], analysis: QueryAnalysis
-    ) -> List[Document]:
+        self, documents: list[Document], analysis: QueryAnalysis
+    ) -> list[Document]:
         """
         结果后处理：根据查询分析优化结果
         """
@@ -313,7 +312,7 @@ class IntelligentQueryRouter:
         elif strategy == SearchStrategy.COMBINED:
             self.route_stats["combined_count"] += 1
 
-    def get_route_statistics(self) -> Dict[str, Any]:
+    def get_route_statistics(self) -> dict[str, Any]:
         """获取路由统计信息"""
         total = self.route_stats["total_queries"]
         if total == 0:

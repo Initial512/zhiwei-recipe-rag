@@ -5,10 +5,9 @@
 import logging
 import os
 import time
-from typing import List
 
-from openai import OpenAI
 from langchain_core.documents import Document
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +67,7 @@ class GenerationIntegrationModule:
         回答：
         """
 
-    def generate_adaptive_answer(self, question: str, documents: List[Document]) -> str:
+    def generate_adaptive_answer(self, question: str, documents: list[Document]) -> str:
         """
         智能统一答案生成
         自动适应不同类型的查询，无需预先分类
@@ -106,7 +105,7 @@ class GenerationIntegrationModule:
             return f"抱歉，生成回答时出现错误：{str(e)}"
 
     def generate_adaptive_answer_stream(
-        self, question: str, documents: List[Document], max_retries: int = 3
+        self, question: str, documents: list[Document], max_retries: int = 3
     ):
         """
         LightRAG风格的流式答案生成（带重试机制）
@@ -164,7 +163,7 @@ class GenerationIntegrationModule:
                     continue
                 else:
                     # 所有重试都失败，使用非流式作为后备
-                    logger.error(f"流式生成完全失败，尝试非流式后备方案")
+                    logger.error("流式生成完全失败，尝试非流式后备方案")
                     print("⚠️ 流式生成失败，切换到标准模式...")
 
                     try:

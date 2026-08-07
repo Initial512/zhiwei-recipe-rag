@@ -7,11 +7,9 @@ V: 详细描述段落（包含相关文本片段）
 
 import json
 import logging
-from typing import Dict, List, Tuple, Any, Optional
-from dataclasses import dataclass
 from collections import defaultdict
-
-from langchain_core.documents import Document
+from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +19,10 @@ class EntityKeyValue:
     """实体键值对"""
 
     entity_name: str
-    index_keys: List[str]  # 索引键列表
+    index_keys: list[str]  # 索引键列表
     value_content: str  # 详细描述内容
     entity_type: str  # 实体类型 (Recipe, Ingredient, CookingStep)
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 @dataclass
@@ -32,12 +30,12 @@ class RelationKeyValue:
     """关系键值对"""
 
     relation_id: str
-    index_keys: List[str]  # 多个索引键（可包含全局主题）
+    index_keys: list[str]  # 多个索引键（可包含全局主题）
     value_content: str  # 关系描述内容
     relation_type: str  # 关系类型
     source_entity: str  # 源实体
     target_entity: str  # 目标实体
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 class GraphIndexingModule:
@@ -55,16 +53,16 @@ class GraphIndexingModule:
         self.llm_client = llm_client
 
         # 键值对存储
-        self.entity_kv_store: Dict[str, EntityKeyValue] = {}
-        self.relation_kv_store: Dict[str, RelationKeyValue] = {}
+        self.entity_kv_store: dict[str, EntityKeyValue] = {}
+        self.relation_kv_store: dict[str, RelationKeyValue] = {}
 
         # 索引映射：key -> entity/relation IDs
-        self.key_to_entities: Dict[str, List[str]] = defaultdict(list)
-        self.key_to_relations: Dict[str, List[str]] = defaultdict(list)
+        self.key_to_entities: dict[str, list[str]] = defaultdict(list)
+        self.key_to_relations: dict[str, list[str]] = defaultdict(list)
 
     def create_entity_key_values(
-        self, recipes: List[Any], ingredients: List[Any], cooking_steps: List[Any]
-    ) -> Dict[str, EntityKeyValue]:
+        self, recipes: list[Any], ingredients: list[Any], cooking_steps: list[Any]
+    ) -> dict[str, EntityKeyValue]:
         """
         为实体创建键值对结构
         每个实体使用其名称作为唯一索引键
@@ -167,8 +165,8 @@ class GraphIndexingModule:
         return self.entity_kv_store
 
     def create_relation_key_values(
-        self, relationships: List[Tuple[str, str, str]]
-    ) -> Dict[str, RelationKeyValue]:
+        self, relationships: list[tuple[str, str, str]]
+    ) -> dict[str, RelationKeyValue]:
         """
         为关系创建键值对结构
         关系可能有多个索引键，包含从LLM增强的全局主题
@@ -223,7 +221,7 @@ class GraphIndexingModule:
 
     def _generate_relation_index_keys(
         self, source_entity: EntityKeyValue, target_entity: EntityKeyValue, relation_type: str
-    ) -> List[str]:
+    ) -> list[str]:
         """
         为关系生成多个索引键，包含全局主题
         """
@@ -259,7 +257,7 @@ class GraphIndexingModule:
 
     def _llm_enhance_relation_keys(
         self, source_entity: EntityKeyValue, target_entity: EntityKeyValue, relation_type: str
-    ) -> List[str]:
+    ) -> list[str]:
         """
         使用LLM增强关系索引键，生成全局主题
         """
@@ -302,7 +300,7 @@ class GraphIndexingModule:
 
         # 合并重复实体
         entities_to_remove = []
-        for name, entity_ids in name_to_entities.items():
+        for _name, entity_ids in name_to_entities.items():
             if len(entity_ids) > 1:
                 # 保留第一个，合并其他的内容
                 primary_id = entity_ids[0]
@@ -361,19 +359,19 @@ class GraphIndexingModule:
             for key in relation_kv.index_keys:
                 self.key_to_relations[key].append(relation_id)
 
-    def get_entities_by_key(self, key: str) -> List[EntityKeyValue]:
+    def get_entities_by_key(self, key: str) -> list[EntityKeyValue]:
         """根据索引键获取实体"""
         entity_ids = self.key_to_entities.get(key, [])
         return [self.entity_kv_store[eid] for eid in entity_ids if eid in self.entity_kv_store]
 
-    def get_relations_by_key(self, key: str) -> List[RelationKeyValue]:
+    def get_relations_by_key(self, key: str) -> list[RelationKeyValue]:
         """根据索引键获取关系"""
         relation_ids = self.key_to_relations.get(key, [])
         return [
             self.relation_kv_store[rid] for rid in relation_ids if rid in self.relation_kv_store
         ]
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """获取键值对存储统计信息"""
         return {
             "total_entities": len(self.entity_kv_store),

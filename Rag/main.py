@@ -5,19 +5,18 @@ from __future__ import annotations
 import logging
 import os
 
-from config import DEFAULT_CONFIG, RAGConfig
+from config import RAGConfig
 from dotenv import load_dotenv
 from langchain_core.documents import Document
-
 from rag_modules.generation_integration import GenerationIntegrationModule
 from rag_modules.graph_data_preparation import GraphDataPreparationModule
 from rag_modules.graph_rag_retrieval import GraphRAGRetrieval
 from rag_modules.hybrid_retrieval import HybridRetrievalModule
 from rag_modules.intelligent_query_router import IntelligentQueryRouter
 from rag_modules.milvus_index_construction import MilvusIndexConstructionModule
-from rag_modules.session_cache_manager import SessionCacheManager
 
 load_dotenv()
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,13 +38,12 @@ class RecipeRAGSystem:
     CATEGORY_ALIASES = {"汤类": "汤品", "饮料": "饮品"}
 
     def __init__(self, config: RAGConfig | None = None):
-        self.config = config or DEFAULT_CONFIG
+        self.config = config or RAGConfig()
         self.data_module: GraphDataPreparationModule | None = None
         self.index_module: MilvusIndexConstructionModule | None = None
         self.retrieval_module: HybridRetrievalModule | None = None
         self.graph_retrieval_module: GraphRAGRetrieval | None = None
         self.query_router: IntelligentQueryRouter | None = None
-        self.cache_manager = SessionCacheManager()
         self.generation_module: GenerationIntegrationModule | None = None
         self.chunks: list[Document] = []
 
@@ -110,7 +108,6 @@ class RecipeRAGSystem:
             model_name=self.config.embedding_model,
         )
         self._ensure_index()
-        self.cache_manager.embedding_model = self.index_module.embeddings
         self.retrieval_module = HybridRetrievalModule(
             self.config, self.index_module, self.data_module, self.generation_module.client
         )

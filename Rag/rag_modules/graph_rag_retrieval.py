@@ -5,10 +5,9 @@
 
 import json
 import logging
-from collections import defaultdict, deque
-from typing import List, Dict, Tuple, Any, Optional, Set
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 from langchain_core.documents import Document
 from neo4j import GraphDatabase
@@ -31,20 +30,20 @@ class GraphQuery:
     """图查询结构"""
 
     query_type: QueryType
-    source_entities: List[str]
-    target_entities: List[str] = None
-    relation_types: List[str] = None
+    source_entities: list[str]
+    target_entities: list[str] = None
+    relation_types: list[str] = None
     max_depth: int = 2
     max_nodes: int = 50
-    constraints: Dict[str, Any] = None
+    constraints: dict[str, Any] = None
 
 
 @dataclass
 class GraphPath:
     """图路径结构"""
 
-    nodes: List[Dict[str, Any]]
-    relationships: List[Dict[str, Any]]
+    nodes: list[dict[str, Any]]
+    relationships: list[dict[str, Any]]
     path_length: int
     relevance_score: float
     path_type: str
@@ -54,11 +53,11 @@ class GraphPath:
 class KnowledgeSubgraph:
     """知识子图结构"""
 
-    central_nodes: List[Dict[str, Any]]
-    connected_nodes: List[Dict[str, Any]]
-    relationships: List[Dict[str, Any]]
-    graph_metrics: Dict[str, float]
-    reasoning_chains: List[List[str]]
+    central_nodes: list[dict[str, Any]]
+    connected_nodes: list[dict[str, Any]]
+    relationships: list[dict[str, Any]]
+    graph_metrics: dict[str, float]
+    reasoning_chains: list[list[str]]
 
 
 class GraphRAGRetrieval:
@@ -210,7 +209,7 @@ class GraphRAGRetrieval:
             # 降级方案：默认子图查询
             return GraphQuery(query_type=QueryType.SUBGRAPH, source_entities=[query], max_depth=2)
 
-    def multi_hop_traversal(self, graph_query: GraphQuery) -> List[GraphPath]:
+    def multi_hop_traversal(self, graph_query: GraphQuery) -> list[GraphPath]:
         """
         多跳图遍历：这是图RAG的核心优势
         通过图结构发现隐含的知识关联
@@ -350,7 +349,7 @@ class GraphRAGRetrieval:
         # 降级方案：简单邻居查询
         return self._fallback_subgraph_extraction(graph_query)
 
-    def graph_structure_reasoning(self, subgraph: KnowledgeSubgraph, query: str) -> List[str]:
+    def graph_structure_reasoning(self, subgraph: KnowledgeSubgraph, query: str) -> list[str]:
         """
         基于图结构的推理：这是图RAG的智能之处
         不仅检索信息，还能进行逻辑推理
@@ -377,7 +376,7 @@ class GraphRAGRetrieval:
             logger.error(f"图结构推理失败: {e}")
             return []
 
-    def adaptive_query_planning(self, query: str) -> List[GraphQuery]:
+    def adaptive_query_planning(self, query: str) -> list[GraphQuery]:
         """
         自适应查询规划：根据查询复杂度动态调整策略
         """
@@ -415,7 +414,7 @@ class GraphRAGRetrieval:
 
         return query_plans
 
-    def graph_rag_search(self, query: str, top_k: int = 5) -> List[Document]:
+    def graph_rag_search(self, query: str, top_k: int = 5) -> list[Document]:
         """
         图RAG主搜索接口：整合所有图RAG能力
         """
@@ -464,7 +463,7 @@ class GraphRAGRetrieval:
 
     # ========== 辅助方法 ==========
 
-    def _parse_neo4j_path(self, record) -> Optional[GraphPath]:
+    def _parse_neo4j_path(self, record) -> GraphPath | None:
         """解析Neo4j路径记录"""
         try:
             path_nodes = []
@@ -518,11 +517,11 @@ class GraphRAGRetrieval:
                 reasoning_chains=[],
             )
 
-    def _paths_to_documents(self, paths: List[GraphPath], query: str) -> List[Document]:
+    def _paths_to_documents(self, paths: list[GraphPath], query: str) -> list[Document]:
         """将图路径转换为Document对象"""
         documents = []
 
-        for i, path in enumerate(paths):
+        for _i, path in enumerate(paths):
             # 构建路径描述
             path_desc = self._build_path_description(path)
 
@@ -545,8 +544,8 @@ class GraphRAGRetrieval:
         return documents
 
     def _subgraph_to_documents(
-        self, subgraph: KnowledgeSubgraph, reasoning_chains: List[str], query: str
-    ) -> List[Document]:
+        self, subgraph: KnowledgeSubgraph, reasoning_chains: list[str], query: str
+    ) -> list[Document]:
         """将知识子图转换为Document对象"""
         documents = []
 
@@ -592,7 +591,7 @@ class GraphRAGRetrieval:
 
         return f"关于 {', '.join(central_names)} 的知识网络，包含 {node_count} 个相关概念和 {rel_count} 个关系。"
 
-    def _rank_by_graph_relevance(self, documents: List[Document], query: str) -> List[Document]:
+    def _rank_by_graph_relevance(self, documents: list[Document], query: str) -> list[Document]:
         """基于图结构相关性排序"""
         return sorted(documents, key=lambda x: x.metadata.get("relevance_score", 0.0), reverse=True)
 
@@ -602,23 +601,23 @@ class GraphRAGRetrieval:
         score = sum(1 for indicator in complexity_indicators if indicator in query)
         return min(score / len(complexity_indicators), 1.0)
 
-    def _identify_reasoning_patterns(self, subgraph: KnowledgeSubgraph) -> List[str]:
+    def _identify_reasoning_patterns(self, subgraph: KnowledgeSubgraph) -> list[str]:
         """识别推理模式"""
         return ["因果关系", "组成关系", "相似关系"]
 
-    def _build_reasoning_chain(self, pattern: str, subgraph: KnowledgeSubgraph) -> Optional[str]:
+    def _build_reasoning_chain(self, pattern: str, subgraph: KnowledgeSubgraph) -> str | None:
         """构建推理链"""
         return f"基于{pattern}的推理链"
 
-    def _validate_reasoning_chains(self, chains: List[str], query: str) -> List[str]:
+    def _validate_reasoning_chains(self, chains: list[str], query: str) -> list[str]:
         """验证推理链"""
         return chains[:3]
 
-    def _find_entity_relations(self, graph_query: GraphQuery, session) -> List[GraphPath]:
+    def _find_entity_relations(self, graph_query: GraphQuery, session) -> list[GraphPath]:
         """查找实体间关系"""
         return []
 
-    def _find_shortest_paths(self, graph_query: GraphQuery, session) -> List[GraphPath]:
+    def _find_shortest_paths(self, graph_query: GraphQuery, session) -> list[GraphPath]:
         """查找最短路径"""
         return []
 

@@ -6,12 +6,13 @@
 
 import json
 import logging
-from typing import List, Dict, Tuple, Any
 from dataclasses import dataclass
+from typing import Any
 
-from langchain_core.documents import Document
 from langchain_community.retrievers import BM25Retriever
+from langchain_core.documents import Document
 from neo4j import GraphDatabase
+
 from .graph_indexing import GraphIndexingModule
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ class RetrievalResult:
     node_type: str
     relevance_score: float
     retrieval_level: str  # 'low' or 'high'
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 class HybridRetrievalModule:
@@ -52,7 +53,7 @@ class HybridRetrievalModule:
         self.graph_indexing = GraphIndexingModule(config, llm_client)
         self.graph_indexed = False
 
-    def initialize(self, chunks: List[Document]):
+    def initialize(self, chunks: list[Document]):
         """初始化检索系统"""
         logger.info("初始化混合检索模块...")
 
@@ -99,7 +100,7 @@ class HybridRetrievalModule:
         except Exception as e:
             logger.error(f"构建图索引失败: {e}")
 
-    def _extract_relationships_from_graph(self) -> List[Tuple[str, str, str]]:
+    def _extract_relationships_from_graph(self) -> list[tuple[str, str, str]]:
         """从Neo4j图中提取关系"""
         relationships = []
 
@@ -123,7 +124,7 @@ class HybridRetrievalModule:
 
         return relationships
 
-    def extract_query_keywords(self, query: str) -> Tuple[List[str], List[str]]:
+    def extract_query_keywords(self, query: str) -> tuple[list[str], list[str]]:
         """
         提取查询关键词：实体级 + 主题级
         """
@@ -183,8 +184,8 @@ class HybridRetrievalModule:
             return keywords[:3], keywords[3:6] if len(keywords) > 3 else keywords
 
     def entity_level_retrieval(
-        self, entity_keywords: List[str], top_k: int = 5
-    ) -> List[RetrievalResult]:
+        self, entity_keywords: list[str], top_k: int = 5
+    ) -> list[RetrievalResult]:
         """
         实体级检索：专注于具体实体和关系
         使用图索引的键值对结构进行检索
@@ -232,7 +233,7 @@ class HybridRetrievalModule:
         logger.info(f"实体级检索完成，返回 {len(results)} 个结果")
         return results[:top_k]
 
-    def _neo4j_entity_level_search(self, keywords: List[str], limit: int) -> List[RetrievalResult]:
+    def _neo4j_entity_level_search(self, keywords: list[str], limit: int) -> list[RetrievalResult]:
         """Neo4j补充检索"""
         results = []
 
@@ -283,8 +284,8 @@ class HybridRetrievalModule:
         return results
 
     def topic_level_retrieval(
-        self, topic_keywords: List[str], top_k: int = 5
-    ) -> List[RetrievalResult]:
+        self, topic_keywords: list[str], top_k: int = 5
+    ) -> list[RetrievalResult]:
         """
         主题级检索：专注于广泛主题和概念
         使用图索引的关系键值对结构进行主题检索
@@ -370,7 +371,7 @@ class HybridRetrievalModule:
         logger.info(f"主题级检索完成，返回 {len(results)} 个结果")
         return results[:top_k]
 
-    def _neo4j_topic_level_search(self, keywords: List[str], limit: int) -> List[RetrievalResult]:
+    def _neo4j_topic_level_search(self, keywords: list[str], limit: int) -> list[RetrievalResult]:
         """Neo4j主题级检索补充"""
         results = []
 
@@ -437,7 +438,7 @@ class HybridRetrievalModule:
 
         return results
 
-    def dual_level_retrieval(self, query: str, top_k: int = 5) -> List[Document]:
+    def dual_level_retrieval(self, query: str, top_k: int = 5) -> list[Document]:
         """
         双层检索：结合实体级和主题级检索
         """
@@ -487,7 +488,7 @@ class HybridRetrievalModule:
         logger.info(f"双层检索完成，返回 {len(documents)} 个文档")
         return documents
 
-    def vector_search_enhanced(self, query: str, top_k: int = 5) -> List[Document]:
+    def vector_search_enhanced(self, query: str, top_k: int = 5) -> list[Document]:
         """
         增强的向量检索：结合图信息
         """
@@ -536,7 +537,7 @@ class HybridRetrievalModule:
             logger.error(f"增强向量检索失败: {e}")
             return []
 
-    def _get_node_neighbors(self, node_id: str, max_neighbors: int = 3) -> List[str]:
+    def _get_node_neighbors(self, node_id: str, max_neighbors: int = 3) -> list[str]:
         """获取节点的邻居信息"""
         try:
             with self.driver.session() as session:
@@ -551,7 +552,7 @@ class HybridRetrievalModule:
             logger.error(f"获取邻居节点失败: {e}")
             return []
 
-    def hybrid_search(self, query: str, top_k: int = 5) -> List[Document]:
+    def hybrid_search(self, query: str, top_k: int = 5) -> list[Document]:
         """
         混合检索：并行执行多种检索策略
         """

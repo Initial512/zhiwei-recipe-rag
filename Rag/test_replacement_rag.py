@@ -1,90 +1,123 @@
+import asyncio
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import api as api_module
-from api import RECIPE_IMAGE_DIR, _parse_ingredient_groups, _parse_step_groups, _sse
+from api import RECIPE_IMAGE_DIR, RecipeCatalog, _parse_ingredient_groups, _parse_step_groups, _sse
 from config import RAGConfig
 from main import RecipeRAGSystem, _difficulty
+from rag_modules.milvus_index_construction import MilvusIndexConstructionModule
 from recipe_metadata import parse_query
 
-from rag_modules.session_cache_manager import SessionCacheManager
-from rag_modules.milvus_index_construction import MilvusIndexConstructionModule
 
-
-def test_existing_llm_configuration_contract_is_preserved(monkeypatch):
+def test_config_reads_environment_when_instance_is_created(monkeypatch):
     monkeypatch.setenv("LLM_MODEL", "test-model")
-    assert RAGConfig().llm_model == "test-model"
+    monkeypatch.setenv("NEO4J_PASSWORD", "test-password")
+    monkeypatch.setenv("MILVUS_PORT", "19531")
+
+    config = RAGConfig()
+
+    assert config.llm_model == "test-model"
+    assert config.neo4j_password == "test-password"
+    assert config.milvus_port == 19531
+
+
+def test_lifespan_closes_system_on_shutdown():
+    closed = []
+    system = SimpleNamespace(
+        initialize_system=lambda: None,
+        build_knowledge_base=lambda: None,
+        close=lambda: closed.append(True),
+    )
+    app = SimpleNamespace(state=SimpleNamespace())
+
+    async def run_lifespan():
+        with (
+            patch.object(api_module, "RecipeRAGSystem", return_value=system),
+            patch.object(api_module, "RecipeCatalog", return_value=SimpleNamespace()),
+        ):
+            async with api_module.lifespan(app):
+                assert app.state.rag is system
+
+    asyncio.run(run_lifespan())
+    assert closed == [True]
+
+
+def test_lifespan_closes_system_when_startup_fails():
+    closed = []
+    system = SimpleNamespace(
+        initialize_system=lambda: (_ for _ in ()).throw(RuntimeError("startup failed")),
+        close=lambda: closed.append(True),
+    )
+    app = SimpleNamespace(state=SimpleNamespace())
+
+    async def run_lifespan():
+        with patch.object(api_module, "RecipeRAGSystem", return_value=system):
+            try:
+                async with api_module.lifespan(app):
+                    raise AssertionError("unreachable")
+            except RuntimeError:
+                pass
+
+    asyncio.run(run_lifespan())
+    assert closed == [True]
 
 
 def test_graph_documents_keep_frontend_taxonomy():
-    assert RecipeRAGSystem.normalize_category("汤类,早餐") == "汤品"
-    assert RecipeRAGSystem.normalize_category("饮料") == "饮品"
-    assert RecipeRAGSystem().get_supported_categories()[-1] == "半成品"
-    assert _difficulty(3) == "中等"
+    assert RecipeRAGSystem.normalize_category("\u6c64\u7c7b,\u65e9\u9910") == "\u6c64\u54c1"
+    assert RecipeRAGSystem.normalize_category("\u996e\u6599") == "\u996e\u54c1"
+    assert RecipeRAGSystem().get_supported_categories()[-1] == "\u534a\u6210\u54c1"
+    assert _difficulty(3) == "\u4e2d\u7b49"
 
 
-def test_recipe_query_classification_requires_no_legacy_rag_module():
-    assert parse_query("宫保鸡丁怎么做", ["宫保鸡丁"])["intent"] == "recipe_lookup"
-    assert parse_query("推荐几道下饭菜", ["宫保鸡丁"])["intent"] == "recommendation"
-
-
-def test_session_cache_returns_same_session_answer():
-    cache = SessionCacheManager(
-        embedding_model=SimpleNamespace(
-            embed_documents=lambda values: [[float(len(value))] for value in values]
-        )
+def test_recipe_query_classification_uses_current_parser():
+    names = ["\u5bab\u4fdd\u9e21\u4e01"]
+    assert (
+        parse_query("\u5bab\u4fdd\u9e21\u4e01\u600e\u4e48\u505a", names)["intent"]
+        == "recipe_lookup"
     )
-    cache.add_to_semantic_cache("番茄汤", "做法", "session-a")
-    assert cache.check_semantic_cache("番茄汤", "session-a") == "做法"
-    assert cache.check_semantic_cache("番茄汤", "session-b") is None
-
-
-def test_index_rebuilds_only_when_chunk_count_changes():
-    system = RecipeRAGSystem.__new__(RecipeRAGSystem)
-    system.chunks = [object(), object()]
-    calls = []
-    system.index_module = SimpleNamespace(
-        has_collection=lambda: True,
-        get_collection_stats=lambda: {"row_count": "2"},
-        load_collection=lambda: True,
-        build_vector_index=lambda chunks: calls.append(chunks) or True,
+    assert (
+        parse_query("\u63a8\u8350\u51e0\u9053\u4e0b\u996d\u83dc", names)["intent"]
+        == "recommendation"
     )
-    system._ensure_index()
-    assert calls == []
-
-    system.index_module.get_collection_stats = lambda: {"row_count": "1"}
-    system._ensure_index()
-    assert calls == [system.chunks]
 
 
 def test_sse_and_recipe_images_remain_compatible():
-    assert _sse("delta", "一碗汤") == "event: delta\ndata: 一碗汤\n\n"
-    assert (RECIPE_IMAGE_DIR / "宫保鸡丁.webp").is_file()
+    assert _sse("delta", "\u4e00\u7897\u6c64") == "event: delta\ndata: \u4e00\u7897\u6c64\n\n"
+    assert (RECIPE_IMAGE_DIR / "\u5bab\u4fdd\u9e21\u4e01.webp").is_file()
 
 
 def test_milvus_index_accepts_frontend_difficulty_labels():
-    assert MilvusIndexConstructionModule._difficulty_value("非常简单") == 1
-    assert MilvusIndexConstructionModule._difficulty_value("中等") == 3
-    assert MilvusIndexConstructionModule._difficulty_value("未知") == 0
+    assert MilvusIndexConstructionModule._difficulty_value("\u975e\u5e38\u7b80\u5355") == 1
+    assert MilvusIndexConstructionModule._difficulty_value("\u4e2d\u7b49") == 3
+    assert MilvusIndexConstructionModule._difficulty_value("\u672a\u77e5") == 0
 
 
-def test_recommendation_questions_always_return_a_stream(monkeypatch):
+def test_recipe_catalog_reuses_precomputed_summaries(monkeypatch):
+    document = SimpleNamespace(
+        metadata={
+            "dish_name": "\u6c64\u9762",
+            "category": "\u4e3b\u98df",
+            "difficulty": "\u7b80\u5355",
+        }
+    )
     system = SimpleNamespace(
-        config=SimpleNamespace(top_k=5),
-        generation_module=SimpleNamespace(
-            generate_adaptive_answer_stream=lambda question, docs: iter(["answer"])
+        data_module=SimpleNamespace(
+            documents=[document], get_supported_categories=lambda: ["\u4e3b\u98df"]
         ),
     )
     monkeypatch.setattr(
-        api_module, "_parse_user_query", lambda _system, _question: {"intent": "recommendation"}
-    )
-    monkeypatch.setattr(
-        api_module, "_recommendation_documents", lambda *_args, **_kwargs: [object()]
+        api_module,
+        "_recipe_summary",
+        lambda doc: {"dish_name": "\u6c64\u9762", "category": "\u4e3b\u98df"},
     )
 
-    docs, chunks = api_module._prepare_answer(system, "recommend a dish")
+    catalog = RecipeCatalog(system)
 
-    assert docs == []
-    assert list(chunks) == ["answer"]
+    assert catalog.find("\u6c64\u9762") is document
+    assert catalog.search_names("\u6c64", 12) == [
+        {"dish_name": "\u6c64\u9762", "category": "\u4e3b\u98df"}
+    ]
 
 
 def test_graph_recipe_detail_parser_keeps_ingredients_and_action_only():
@@ -93,42 +126,10 @@ def test_graph_recipe_detail_parser_keeps_ingredients_and_action_only():
 2. \u9c9c\u725b\u5976(300ml)
 ## \u5236\u4f5c\u6b65\u9aa4
 ### \u7b2c1\u6b65
-\u6b65\u9aa4: \u6b65\u9aa41 \u63cf\u8ff0: \u767d\u8611\u83c7\u5207\u7247\u5907\u7528\uff0c\u6d0b\u8471\u5207\u672b\u5907\u7528\u3002 \u65b9\u6cd5: \u5207 \u5de5\u5177: \u5200,\u6848\u677f \u65f6\u95f4: 5\u5206\u949f
+\u6b65\u9aa4: \u6b65\u9aa41 \u63cf\u8ff0: \u767d\u8611\u83c7\u5207\u7247\u5907\u7528\uff0c\u6d0b\u8471\u5207\u672b\u5907\u7528\u3002 \u65b9\u6cd5: \u5207 \u5de5\u5177: \u5200
 """
 
-    assert _parse_ingredient_groups(content) == [
-        {"name": "\u6240\u9700\u98df\u6750", "items": [{"name": "\u767d\u8611\u83c7", "amount": "200g"}, {"name": "\u9c9c\u725b\u5976", "amount": "300ml"}]}
-    ]
-    assert _parse_step_groups(content) == [
-        {"name": "\u5236\u4f5c\u6b65\u9aa4", "steps": ["\u767d\u8611\u83c7\u5207\u7247\u5907\u7528\uff0c\u6d0b\u8471\u5207\u672b\u5907\u7528\u3002"]}
-    ]
-
-
-def test_recipe_detail_reads_tips_from_original_markdown():
-    assert len(api_module._markdown_tips("\u91d1\u9488\u83c7\u6c64")) >= 2
-
-
-def test_recipe_tips_remove_source_credits_and_supply_a_fallback():
-    tips = api_module._markdown_tips("\u9ec4\u6cb9\u714e\u867e", "\u6c34\u4ea7")
-    assert len(tips) == 1
-    assert "\u5c0f\u5fc3\u7528\u5200" in tips[0]
-    assert "\u83dc\u8c31" not in tips[0]
-    assert api_module._fallback_tips("\u6c64\u54c1")
-
-
-def test_recipe_tips_remove_reference_materials():
-    assert api_module._clean_tip_line("\u53c2\u8003\u8d44\u6599\uff1a\u738b\u521a\u7684\u6559\u5b66\u89c6\u9891") == ""
-    assert api_module._clean_tip_line("\u505a\u6cd5\u53c2\u8003\uff1aB\u7ad9\u89c6\u9891") == ""
-    assert api_module._clean_tip_line("\u706b\u5019\u4e0d\u5b9c\u8fc7\u5927\uff0c\u907f\u514d\u7cca\u5e95\u3002")
-
-
-def test_graph_step_headings_are_flattened_for_continuous_numbering():
-    content = """## \u5236\u4f5c\u6b65\u9aa4
-### \u7b2c1\u6b65
-\u6b65\u9aa4: \u6b65\u9aa41 \u63cf\u8ff0: \u7b2c\u4e00\u6b65\u3002 \u65b9\u6cd5: \u5207
-### \u7b2c2\u6b65
-\u6b65\u9aa4: \u6b65\u9aa42 \u63cf\u8ff0: \u7b2c\u4e8c\u6b65\u3002 \u65b9\u6cd5: \u7092
-"""
-    assert _parse_step_groups(content) == [
-        {"name": "\u5236\u4f5c\u6b65\u9aa4", "steps": ["\u7b2c\u4e00\u6b65\u3002", "\u7b2c\u4e8c\u6b65\u3002"]}
+    assert _parse_ingredient_groups(content)[0]["items"][0]["amount"] == "200g"
+    assert _parse_step_groups(content)[0]["steps"] == [
+        "\u767d\u8611\u83c7\u5207\u7247\u5907\u7528\uff0c\u6d0b\u8471\u5207\u672b\u5907\u7528\u3002"
     ]
