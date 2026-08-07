@@ -234,7 +234,9 @@ def test_chat_stream_guards_assistant_questions_from_retrieval(monkeypatch):
     monkeypatch.setattr(api_module, "_classify_query", lambda *_: "assistant")
     monkeypatch.setattr(api_module, "_prepare_answer", prepare)
 
-    response = api_module.chat_stream(api_module.ChatRequest(question="你是谁？"), request)
+    response = api_module.chat_stream.__wrapped__(
+        api_module.ChatRequest(question="你是谁？"), request
+    )
 
     prepare.assert_not_called()
     generate.assert_called_once_with("你是谁？", [])
