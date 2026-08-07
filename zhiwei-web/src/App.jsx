@@ -13,10 +13,10 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { formatAnswer, formatInlineText } from "./answerFormatting.js";
+import { pickHomeInspirations } from "./homeInspiration.js";
 import roomImage from "./assets/warm-interior.png";
 import aromaImage from "./assets/aroma-chopsticks-transparent.png";
 
-const quickQuestions = ["推荐几道简单的汤", "今晚想吃点辣的", "适合夏天的饮品"];
 const MAX_CHAT_LENGTH = 1000;
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 const apiUrl = (path) => `${API_BASE_URL}${path}`;
@@ -162,6 +162,7 @@ export function App() {
   const [recommendationsError, setRecommendationsError] = useState("");
   const [recipeQuery, setRecipeQuery] = useState("");
   const [chatInput, setChatInput] = useState("");
+  const [homeInspirations, setHomeInspirations] = useState(() => pickHomeInspirations());
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [searchError, setSearchError] = useState("");
@@ -191,6 +192,7 @@ export function App() {
     const onPopState = (event) => {
       const nextPage = parseLocation(event.state);
       setPage(nextPage);
+      if (nextPage.type === "home") setHomeInspirations((previous) => pickHomeInspirations(previous));
       setActiveCategory(nextPage.categoryName || "");
       setRecipeQuery("");
       window.requestAnimationFrame(() => window.scrollTo({ top: event.state?.scrollY || 0 }));
@@ -439,6 +441,7 @@ export function App() {
     setRecipeQuery("");
     setCategoryMenuOpen(false);
     setSearchMenuOpen(false);
+    setHomeInspirations((previous) => pickHomeInspirations(previous));
     window.scrollTo({ top: 0, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
@@ -609,7 +612,7 @@ export function App() {
                 </div>
                 <div className="chat-suggestions" aria-label="快捷问题">
                   <span>灵感</span>
-                  {quickQuestions.map((question) => (
+                  {homeInspirations.map((question) => (
                     <button type="button" key={question} onClick={() => submitSearch(question)}>{question}</button>
                   ))}
                 </div>
