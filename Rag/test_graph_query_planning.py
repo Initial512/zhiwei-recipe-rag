@@ -9,6 +9,10 @@ from rag_modules.intelligent_query_router import (
 )
 
 
+def _llm_response(content):
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+
 def _graph_retrieval() -> GraphRAGRetrieval:
     return GraphRAGRetrieval.__new__(GraphRAGRetrieval)
 
@@ -133,3 +137,126 @@ def test_entity_relation_query_uses_target_names_not_target_labels():
 
     assert "target_entities" in captured["parameters"]
     assert "target_labels" not in captured["parameters"]
+
+
+def test_graph_intent_accepts_markdown_json_from_model():
+    retrieval = _graph_retrieval()
+    retrieval.config = SimpleNamespace(llm_model="test")
+    retrieval.llm_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **_: _llm_response(
+                    '```json\n{"query_type":"multi_hop","source_entities":["鸡肉"],'
+                    '"target_entities":["蔬菜"],"max_depth":9}\n```'
+                )
+            )
+        )
+    )
+
+    graph_query = retrieval.understand_graph_query("鸡肉和蔬菜有什么关系？")
+
+    assert graph_query.query_type == QueryType.MULTI_HOP
+    assert graph_query.source_entities == ["鸡肉"]
+    assert graph_query.target_entities == ["蔬菜"]
+    assert graph_query.max_depth == 3
+
+
+def test_graph_intent_invalid_model_output_uses_matching_cached_entities():
+    retrieval = _graph_retrieval()
+    retrieval.config = SimpleNamespace(llm_model="test")
+    retrieval.entity_cache = {
+        "ingredient-chicken": {
+            "name": "鸡肉",
+            "category": "肉类",
+            "degree": 12,
+        },
+        "ingredient-spinach": {
+            "name": "菠菜",
+            "category": "蔬菜",
+            "degree": 8,
+        },
+    }
+    retrieval.llm_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=lambda **_: _llm_response("模型分析：多跳关系"))
+        )
+    )
+
+    graph_query = retrieval.understand_graph_query("鸡肉通过哪些菜谱与哪些蔬菜相连？")
+
+    assert graph_query.query_type == QueryType.MULTI_HOP
+    assert graph_query.source_entities == ["鸡肉"]
+    assert graph_query.target_entities == ["蔬菜"]
+    assert graph_query.max_depth == 3
+
+
+def test_graph_intent_queries_database_when_bounded_cache_misses_an_entity():
+    retrieval = _graph_retrieval()
+    retrieval.config = SimpleNamespace(llm_model="test")
+    retrieval.entity_cache = {}
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def run(self, _query, _parameters):
+            return [{"name": "洋葱", "category": "蔬菜", "degree": 8}]
+
+    class Driver:
+        @staticmethod
+        def session():
+            return Session()
+
+    retrieval.driver = Driver()
+    retrieval.llm_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=lambda **_: _llm_response("not-json"))
+        )
+    )
+
+    graph_query = retrieval.understand_graph_query("洋葱通过哪些菜谱与哪些蔬菜相连？")
+
+    assert graph_query.query_type == QueryType.MULTI_HOP
+    assert graph_query.source_entities == ["洋葱"]
+    assert graph_query.target_entities == ["蔬菜"]
+
+
+def test_graph_index_fallback_prefers_full_entity_name_and_multi_hop_plan():
+    retrieval = _graph_retrieval()
+    retrieval.entity_cache = {
+        "short": {"name": "葱", "category": "蔬菜", "degree": 20},
+        "full": {"name": "洋葱", "category": "蔬菜", "degree": 8},
+    }
+
+    fallback_query = retrieval._graph_query_from_index("洋葱通过哪些菜谱与哪些蔬菜相连？")
+    plans = retrieval.adaptive_query_planning("洋葱通过哪些菜谱与哪些蔬菜相连？", fallback_query)
+
+    assert fallback_query.source_entities == ["洋葱"]
+    assert plans[0].query_type == QueryType.MULTI_HOP
+
+
+def test_router_analysis_accepts_embedded_json_from_model():
+    router = IntelligentQueryRouter(
+        traditional_retrieval=None,
+        graph_rag_retrieval=None,
+        llm_client=SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **_: _llm_response(
+                        '分析结果： {"query_complexity":0.2,"relationship_intensity":0.1,'
+                        '"reasoning_required":false,"entity_count":1,'
+                        '"recommended_strategy":"hybrid_traditional","confidence":0.8}'
+                    )
+                )
+            )
+        ),
+        config=SimpleNamespace(llm_model="test"),
+    )
+
+    analysis = router.analyze_query("今晚吃什么？")
+
+    assert analysis.recommended_strategy == SearchStrategy.HYBRID_TRADITIONAL
+    assert analysis.confidence == 0.8

@@ -6,13 +6,14 @@
 """
 
 import hashlib
-import json
 import logging
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
 
 from langchain_core.documents import Document
+
+from .structured_output import parse_json_object
 
 logger = logging.getLogger(__name__)
 QUERY_ANALYSIS_TIMEOUT_SECONDS = 15
@@ -86,7 +87,7 @@ class IntelligentQueryRouter:
         """
         深度分析查询特征，决定最佳检索策略
         """
-        logger.info(f"分析查询特征: {query}")
+        logger.info("Analyzing query for retrieval strategy")
 
         # 使用LLM进行智能分析
         analysis_prompt = f"""
@@ -141,7 +142,7 @@ class IntelligentQueryRouter:
                 timeout=QUERY_ANALYSIS_TIMEOUT_SECONDS,
             )
 
-            result = json.loads(response.choices[0].message.content.strip())
+            result, source = parse_json_object(response.choices[0].message.content)
 
             analysis = QueryAnalysis(
                 query_complexity=result.get("query_complexity", 0.5),
@@ -157,12 +158,14 @@ class IntelligentQueryRouter:
 
             analysis = self._ensure_graph_strategy_for_explicit_relation(query, analysis)
             logger.info(
-                f"查询分析完成: {analysis.recommended_strategy.value} (置信度: {analysis.confidence:.2f})"
+                "Query analysis completed strategy=%s source=%s",
+                analysis.recommended_strategy.value,
+                source,
             )
             return analysis
 
-        except Exception as e:
-            logger.error(f"查询分析失败: {e}")
+        except Exception as exc:
+            logger.warning("Query analysis failed; using rule fallback (%s)", exc)
             # 降级方案：基于规则的简单分析
             return self._rule_based_analysis(query)
 

@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from langchain_core.documents import Document
-
 from rag_modules.hybrid_retrieval import HybridRetrievalModule
 
 
@@ -73,3 +72,29 @@ def test_hybrid_search_keeps_available_results_when_a_retriever_fails():
 
     assert results[0].metadata["node_id"] == "recipe-1"
     assert results[0].metadata["rrf_sources"] == ["bm25"]
+
+
+def test_keyword_extraction_accepts_markdown_json_from_model():
+    module = _module()
+    module.config = SimpleNamespace(llm_model="test")
+    module.llm_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **_: SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(
+                                content='```json\n{"entity_keywords":["鸡肉", 3],'
+                                '"topic_keywords":["清淡", ""]}\n```'
+                            )
+                        )
+                    ]
+                )
+            )
+        )
+    )
+
+    entity_keywords, topic_keywords = module.extract_query_keywords("推荐清淡鸡肉菜")
+
+    assert entity_keywords == ["鸡肉"]
+    assert topic_keywords == ["清淡"]

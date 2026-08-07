@@ -4,7 +4,6 @@
 """
 
 import hashlib
-import json
 import logging
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -13,8 +12,11 @@ from typing import Any
 from langchain_core.documents import Document
 from neo4j import GraphDatabase
 
+from .structured_output import bounded_int, parse_json_object, string_list
+
 logger = logging.getLogger(__name__)
 GRAPH_INTENT_TIMEOUT_SECONDS = 15
+GRAPH_RELATION_KEYWORDS = ("关系", "相连", "关联", "多跳", "路径", "通过", "搭配")
 
 
 class QueryType(Enum):
@@ -196,21 +198,129 @@ class GraphRAGRetrieval:
                 timeout=GRAPH_INTENT_TIMEOUT_SECONDS,
             )
 
-            result = json.loads(response.choices[0].message.content.strip())
+            result, source = parse_json_object(response.choices[0].message.content)
 
-            return GraphQuery(
+            graph_query = GraphQuery(
                 query_type=QueryType(result.get("query_type", "subgraph")),
-                source_entities=result.get("source_entities", []),
-                target_entities=result.get("target_entities", []),
-                relation_types=result.get("relation_types", []),
-                max_depth=result.get("max_depth", 2),
+                source_entities=string_list(result.get("source_entities")),
+                target_entities=string_list(result.get("target_entities")),
+                relation_types=string_list(result.get("relation_types")),
+                max_depth=bounded_int(result.get("max_depth"), default=2, minimum=1, maximum=3),
                 max_nodes=50,
             )
+            logger.info(
+                "Graph intent parsed source=%s entities=%s targets=%s",
+                source,
+                len(graph_query.source_entities),
+                len(graph_query.target_entities or []),
+            )
+            return graph_query
 
-        except Exception as e:
-            logger.error(f"查询意图理解失败: {e}")
-            # 降级方案：默认子图查询
+        except Exception as exc:
+            logger.warning("Graph intent parsing failed; using index fallback (%s)", exc)
+            return self._graph_query_from_index(query)
+
+    def _graph_query_from_index(self, query: str) -> GraphQuery:
+        """Build a bounded graph query from cached graph entities when the LLM is unavailable."""
+        normalized_query = query.casefold()
+        entries = sorted(
+            self.entity_cache.values(), key=lambda entry: entry.get("degree", 0), reverse=True
+        )
+        source_entities, target_entities = self._matching_graph_entities(entries, normalized_query)
+
+        if not source_entities:
+            database_entries = self._query_matching_graph_entities(query)
+            source_entities, target_entities = self._matching_graph_entities(
+                database_entries, normalized_query
+            )
+
+        if not source_entities:
+            logger.warning("Graph index fallback found no matching entities")
             return GraphQuery(query_type=QueryType.SUBGRAPH, source_entities=[], max_depth=2)
+
+        relationship_query = any(keyword in query for keyword in GRAPH_RELATION_KEYWORDS)
+        query_type = (
+            QueryType.MULTI_HOP
+            if relationship_query or target_entities
+            else QueryType.ENTITY_RELATION
+        )
+        max_depth = 3 if query_type == QueryType.MULTI_HOP else 1
+        logger.warning(
+            "Graph index fallback entities=%s targets=%s query_type=%s",
+            len(source_entities),
+            len(target_entities),
+            query_type.value,
+        )
+        return GraphQuery(
+            query_type=query_type,
+            source_entities=source_entities[:5],
+            target_entities=target_entities[:3],
+            max_depth=max_depth,
+            max_nodes=50,
+        )
+
+    @staticmethod
+    def _matching_graph_entities(
+        entries: list[dict[str, Any]], normalized_query: str
+    ) -> tuple[list[str], list[str]]:
+        source_entities = []
+        target_entities = []
+        sorted_entries = sorted(
+            entries,
+            key=lambda entry: (
+                len(str(entry.get("name") or "")),
+                entry.get("degree", 0),
+            ),
+            reverse=True,
+        )
+        for entry in sorted_entries:
+            name = str(entry.get("name") or "").strip()
+            category = str(entry.get("category") or "").strip()
+            is_duplicate_substring = any(
+                name in matched_name or matched_name in name for matched_name in source_entities
+            )
+            if name and name.casefold() in normalized_query and not is_duplicate_substring:
+                source_entities.append(name)
+            if (
+                category
+                and category.casefold() in normalized_query
+                and category not in target_entities
+            ):
+                target_entities.append(category)
+            if len(source_entities) >= 5 and len(target_entities) >= 3:
+                break
+        return source_entities, target_entities
+
+    def _query_matching_graph_entities(self, query: str) -> list[dict[str, Any]]:
+        """Look up exact names/categories outside the bounded in-memory graph cache."""
+        if not self.driver:
+            return []
+        cypher_query = """
+        MATCH (n)
+        WHERE n.name IS NOT NULL
+          AND (
+              toLower($query) CONTAINS toLower(n.name)
+              OR (n.category IS NOT NULL AND toLower($query) CONTAINS toLower(n.category))
+          )
+        WITH n, COUNT { (n)--() } AS degree
+        RETURN n.name AS name, n.category AS category, degree
+        ORDER BY degree DESC
+        LIMIT 50
+        """
+        try:
+            with self.driver.session() as session:
+                records = session.run(cypher_query, {"query": query})
+                return [
+                    {
+                        "name": record["name"],
+                        "category": record["category"],
+                        "degree": record["degree"],
+                    }
+                    for record in records
+                ]
+        except Exception:
+            logger.exception("Graph index fallback database lookup failed")
+            return []
 
     def multi_hop_traversal(self, graph_query: GraphQuery) -> list[GraphPath]:
         """
@@ -656,7 +766,10 @@ class GraphRAGRetrieval:
         """分析查询复杂度"""
         complexity_indicators = ["什么", "如何", "为什么", "哪些", "关系", "影响", "原因"]
         score = sum(1 for indicator in complexity_indicators if indicator in query)
-        return min(score / len(complexity_indicators), 1.0)
+        complexity = score / len(complexity_indicators)
+        if any(keyword in query for keyword in ("多跳", "路径", "通过", "相连", "搭配")):
+            return max(complexity, 0.4)
+        return min(complexity, 1.0)
 
     def _identify_reasoning_patterns(self, subgraph: KnowledgeSubgraph) -> list[str]:
         """识别推理模式"""

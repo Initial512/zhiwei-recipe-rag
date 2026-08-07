@@ -6,7 +6,6 @@
 
 import concurrent.futures
 import hashlib
-import json
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -17,6 +16,7 @@ from neo4j import GraphDatabase
 from rank_bm25 import BM25Okapi
 
 from .graph_indexing import GraphIndexingModule
+from .structured_output import parse_json_object, string_list
 
 logger = logging.getLogger(__name__)
 
@@ -233,15 +233,20 @@ class HybridRetrievalModule:
                 max_tokens=500,
             )
 
-            result = json.loads(response.choices[0].message.content.strip())
-            entity_keywords = result.get("entity_keywords", [])
-            topic_keywords = result.get("topic_keywords", [])
+            result, source = parse_json_object(response.choices[0].message.content)
+            entity_keywords = string_list(result.get("entity_keywords"))
+            topic_keywords = string_list(result.get("topic_keywords"))
 
-            logger.info(f"关键词提取完成 - 实体级: {entity_keywords}, 主题级: {topic_keywords}")
+            logger.info(
+                "Keyword extraction completed source=%s entities=%s topics=%s",
+                source,
+                len(entity_keywords),
+                len(topic_keywords),
+            )
             return entity_keywords, topic_keywords
 
-        except Exception as e:
-            logger.error(f"关键词提取失败: {e}")
+        except Exception as exc:
+            logger.warning("Keyword extraction failed; using local fallback (%s)", exc)
             # 降级方案：简单的关键词分割
             keywords = query.split()
             return keywords[:3], keywords[3:6] if len(keywords) > 3 else keywords
