@@ -158,14 +158,17 @@ def test_multi_hop_query_limits_sources_and_paths_and_uses_timeout():
     retrieval.driver = SimpleNamespace(session=Session)
     retrieval.config = SimpleNamespace(neo4j_query_timeout_seconds=5)
 
-    assert retrieval.multi_hop_traversal(
-        GraphQuery(
-            query_type=QueryType.MULTI_HOP,
-            source_entities=["鸡肉"] * 8,
-            max_depth=9,
-            max_nodes=80,
+    assert (
+        retrieval.multi_hop_traversal(
+            GraphQuery(
+                query_type=QueryType.MULTI_HOP,
+                source_entities=["鸡肉"] * 8,
+                max_depth=9,
+                max_nodes=80,
+            )
         )
-    ) == []
+        == []
+    )
 
     assert captured["parameters"]["source_limit"] == 5
     assert captured["parameters"]["path_limit"] == 20

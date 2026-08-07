@@ -58,7 +58,9 @@ def _stream_module(create):
 
 
 def test_stream_retries_only_before_the_first_delta():
-    success = iter([SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="完成"))])])
+    success = iter(
+        [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="完成"))])]
+    )
     create = Mock(side_effect=[RuntimeError("temporary"), success])
 
     assert list(_stream_module(create).generate_adaptive_answer_stream("问题", [])) == ["完成"]

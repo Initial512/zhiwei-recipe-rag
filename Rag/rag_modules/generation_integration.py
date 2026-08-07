@@ -153,7 +153,9 @@ class GenerationIntegrationModule:
             except Exception as exc:
                 logger.warning("流式生成第%s次尝试失败", attempt + 1, exc_info=True)
                 if emitted_delta:
-                    raise GenerationStreamError("stream interrupted after response started") from exc
+                    raise GenerationStreamError(
+                        "stream interrupted after response started"
+                    ) from exc
 
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 2  # 递增等待时间

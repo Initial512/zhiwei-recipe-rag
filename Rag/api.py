@@ -788,7 +788,9 @@ def chat_stream(payload: ChatRequest, request: Request):
     system = request.app.state.rag
     question = payload.question.strip()
     if _classify_query(system, question) == "assistant":
-        return _stream_response([], system.generation_module.generate_adaptive_answer_stream(question, []))
+        return _stream_response(
+            [], system.generation_module.generate_adaptive_answer_stream(question, [])
+        )
     docs, chunks = _prepare_answer(system, question)
     return _stream_response(docs, chunks)
 

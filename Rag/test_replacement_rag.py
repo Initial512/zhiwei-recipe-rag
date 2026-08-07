@@ -226,7 +226,9 @@ def test_prepare_answer_continues_without_context_when_routing_fails(monkeypatch
 
 def test_chat_stream_guards_assistant_questions_from_retrieval(monkeypatch):
     generate = Mock(return_value=iter(["assistant answer"]))
-    system = SimpleNamespace(generation_module=SimpleNamespace(generate_adaptive_answer_stream=generate))
+    system = SimpleNamespace(
+        generation_module=SimpleNamespace(generate_adaptive_answer_stream=generate)
+    )
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(rag=system)))
     prepare = Mock()
     monkeypatch.setattr(api_module, "_classify_query", lambda *_: "assistant")
